@@ -1,3 +1,178 @@
+dtkcore (5.7.10) unstable; urgency=medium
+
+  * Release 5.7.10
+
+ -- YeShanShan <yeshanshan@uniontech.com>  Thu, 13 Feb 2025 17:18:04 +0800
+
+dtkcore (5.7.9) unstable; urgency=medium
+
+  [ root ]
+  * UNRELEASED
+
+ -- Deepin Packages Builder <packages@deepin.org>  Thu, 23 Jan 2025 09:07:08 +0000
+
+dtkcore (5.7.8) unstable; urgency=medium
+
+  [ root ]
+  * UNRELEASED
+
+ -- Deepin Packages Builder <packages@deepin.org>  Tue, 14 Jan 2025 11:17:31 +0000
+
+dtkcore (5.7.7) unstable; urgency=medium
+
+  [ root ]
+  * UNRELEASED
+
+ -- Deepin Packages Builder <packages@deepin.org>  Thu, 09 Jan 2025 09:28:38 +0000
+
+dtkcore (5.7.6) unstable; urgency=medium
+
+  [ root ]
+  * UNRELEASED
+
+ -- Deepin Packages Builder <packages@deepin.org>  Thu, 02 Jan 2025 05:43:52 +0000
+
+dtkcore (5.7.5) unstable; urgency=medium
+
+  * fix: pidfd leak
+
+ -- Deepin Packages Builder <packages@deepin.org>  Thu, 12 Dec 2024 03:03:54 +0000
+
+dtkcore (5.7.4) unstable; urgency=medium
+
+  * fix: hasVtable is incorrect when destructing
+
+ -- Deepin Packages Builder <packages@deepin.org>  Tue, 03 Dec 2024 02:00:45 +0000
+
+dtkcore (5.7.3) unstable; urgency=medium
+
+  [ root ]
+  * UNRELEASED
+
+ -- Deepin Packages Builder <packages@deepin.org>  Wed, 20 Nov 2024 02:19:06 +0000
+
+dtkcore (5.7.2) unstable; urgency=medium
+
+  [ root ]
+  * UNRELEASED
+
+ -- Deepin Packages Builder <packages@deepin.org>  Wed, 13 Nov 2024 01:53:26 +0000
+
+dtkcore (5.7.1) unstable; urgency=medium
+
+  * feat: 增加智能终端设备类型 (#434)
+    Thanks to Whale107
+  * fix: remove unnecessary link libraries
+  * fix: DDBusInterface signal loss
+  * fix(util): error appid from `getAppIdFromAbsolutePath`
+
+ -- Deepin Packages Builder <packages@deepin.org>  Wed, 16 Oct 2024 03:30:45 +0000
+
+dtkcore (5.6.34) unstable; urgency=medium
+
+  [ root ]
+  * UNRELEASED
+
+ -- Deepin Packages Builder <packages@deepin.org>  Tue, 20 Aug 2024 05:03:51 +0000
+
+dtkcore (5.6.32) unstable; urgency=medium
+
+  * refactor: log files move to dtklog(Issue: #182)
+
+ -- Deepin Packages Builder <packages@deepin.org>  Mon, 08 Jul 2024 02:29:21 +0000
+
+dtkcore (5.6.31) unstable; urgency=medium
+
+  * chore: use '&&' and '||' instead of 'and' and 'or'
+
+ -- Deepin Packages Builder <packages@deepin.org>  Thu, 27 Jun 2024 09:11:34 +0000
+
+dtkcore (5.6.30) unstable; urgency=medium
+
+  * feat: 允许基于dtk开发的应用动态控制其日志输出等级(Task: 307567)(Influence: 允许基于dtk开发的应用动态控制其日志输出等级)
+  * fix: lshw查询内存大小时返回多元素数组,修正解析过程(Bug: 228681)(Influence: DSysInfo::memoryInstalledSize解析过程)
+  * fix: 从文件中读取deepinType和productType值时因为权限问题会失败(Influence: 正常显示版本和说明)
+  * feat: 增加registerLoggingRulesWatcher接口(Task: 303379)
+  * fix: 修复计算 build 版本号错误的问题(Influence: 构建版本号（BUILD_VERSION ）)
+  * feat: DeepinType类型增加军用版(Task: 316703)(Influence: DeepinType类型)
+  * fix: 修复日志格式时间戳显示异常问题(Bug: 236239)(Influence: 使用DLogManager的应用日志输出格式)
+  * chore: loggingrules config move to preference
+  * refactor: remove LoggingRules interface
+  * fix: crashed when access DSGApplication::id early
+  * chore: fallback to dsgconfig value
+  * fix(build): build faild on Qt 6.7.1
+
+ -- Deepin Packages Builder <packages@deepin.org>  Thu, 30 May 2024 02:46:32 +0000
+
+dtkcore (5.6.29) unstable; urgency=medium
+
+  * chore: remove warning for dbusxml2cpp in qt6
+
+ -- Deepin Packages Builder <packages@deepin.org>  Mon, 13 May 2024 03:02:53 +0000
+
+dtkcore (5.6.28) unstable; urgency=medium
+
+  * fix: fix undefined reference errors on spdlog 1.14.0
+    Thanks to hillwoodroc
+
+ -- Deepin Packages Builder <packages@deepin.org>  Mon, 29 Apr 2024 08:23:39 +0000
+
+dtkcore (5.6.27) unstable; urgency=medium
+
+  * fix: lossing value when save DConfig
+  * fix(qdbusxml2cpp): support qt 6.7
+
+ -- Deepin Packages Builder <packages@deepin.org>  Fri, 19 Apr 2024 08:55:35 +0000
+
+dtkcore (5.6.26) unstable; urgency=medium
+
+  [ root ]
+  * UNRELEASED
+
+ -- Deepin Packages Builder <packages@deepin.org>  Tue, 26 Mar 2024 05:47:35 +0000
+
+dtkcore (5.6.25) unstable; urgency=medium
+
+  * chore: fix docs typo
+  * feat: support to set appId for DConfig
+  * fix: DConfig add check for name(Issue: #1211374)
+
+ -- Deepin Packages Builder <packages@deepin.org>  Mon, 11 Mar 2024 01:16:26 +0000
+
+dtkcore (5.6.22) unstable; urgency=medium
+
+  * Release 5.6.22
+
+ -- Deepin Packages Builder <packages@deepin.org>  Wed, 10 Jan 2024 02:30:59 +0000
+
+dtkcore (5.6.21) unstable; urgency=medium
+
+  * fix: app blocked when AM is unavailable
+  * chore: remove decltype(auto) for dutil
+  * chore: fix relative path invalid link
+  * feat: allow skip including headers of annotations(Issue: #147)
+
+ -- Deepin Packages Builder <packages@deepin.org>  Tue, 09 Jan 2024 01:45:43 +0000
+
+dtkcore (5.6.20) unstable; urgency=medium
+
+  * feat: add utils function
+  * chore: Implement DSGApplication::getId
+  * feat(dstandardpaths): add XDG_STATE_HOME
+  * chore: keep order when deduplication
+  * fix: log files limit not work
+  * chore: add dtk dbus generate function
+
+ -- Deepin Packages Builder <packages@deepin.org>  Tue, 28 Nov 2023 05:40:53 +0000
+
+dtkcore (5.6.19) unstable; urgency=medium
+
+  * fix: Type error for qdbusxml2cpp
+  * fix: correct Dtk6SettingsToolsMacros.cmake path
+  * chore: add flag UserPublic(Issue: https://github.com/linuxdeepin/developer-center/issues/5928)
+
+ -- Deepin Packages Builder <packages@deepin.org>  Mon, 23 Oct 2023 07:33:19 +0000
+
 dtkcore (5.6.18) unstable; urgency=medium
 
   * fix: Can't clear cache when reset for DConfig in FileBackend

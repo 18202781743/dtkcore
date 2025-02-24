@@ -87,6 +87,7 @@ static QString NoAppId;
     @fn QString DConfigBackend::name() const = 0
 
     @brief The unique identity of the backend configuration
+ */
 
 /*!
 @~english
@@ -100,6 +101,7 @@ DConfigBackend::~DConfigBackend()
 {
 }
 
+static QString _globalAppId;
 class Q_DECL_HIDDEN DConfigPrivate : public DObjectPrivate
 {
 public:
@@ -397,7 +399,8 @@ public:
         auto reply = config->isDefaultValue(key);
         reply.waitForFinished();
         if (reply.isError()) {
-            qWarning() << "Wrong when calling `isDefaultValue`, key:" << key << ", error message:" << reply.error().message();
+            qWarning() << "Failed to call `isDefaultValue`, key:" << key
+                       << ", error message:" << reply.error().message();
             return false;
         }
         return reply.value();
@@ -405,12 +408,20 @@ public:
 
     virtual void setValue(const QString &key, const QVariant &value) override
     {
-        config->setValue(key, QDBusVariant(value));
+        auto reply = config->setValue(key, QDBusVariant(value));
+        reply.waitForFinished();
+        if (reply.isError())
+            qCWarning(cfLog) << "Failed to setValue for the key:" << key
+                             << ", error message:" << reply.error();
     }
 
     virtual void reset(const QString &key) override
     {
-        config->reset(key);
+        auto reply = config->reset(key);
+        reply.waitForFinished();
+        if (reply.isError())
+            qCWarning(cfLog) << "Failed to reset for the key:" << key
+                             << ", error message:" << reply.error();
     }
 
     virtual QString name() const override
@@ -600,7 +611,7 @@ DConfig::DConfig(const QString &name, const QString &subpath, QObject *parent)
 }
 
 DConfig::DConfig(DConfigBackend *backend, const QString &name, const QString &subpath, QObject *parent)
-    : DConfig(backend, DSGApplication::id(), name, subpath, parent)
+    : DConfig(backend, _globalAppId.isEmpty() ? DSGApplication::id() : _globalAppId, name, subpath, parent)
 {
 
 }
@@ -643,6 +654,43 @@ DConfig *DConfig::createGeneric(const QString &name, const QString &subpath, QOb
 DConfig *DConfig::createGeneric(DConfigBackend *backend, const QString &name, const QString &subpath, QObject *parent)
 {
     return new DConfig(backend, NoAppId, name, subpath, parent);
+}
+
+/*!
+ * \brief Explicitly specify application Id for config.
+ * \param appId
+ * @note It's should be called before QCoreApplication constructed.
+ */
+void DConfig::setAppId(const QString &appId)
+{
+    if (!_globalAppId.isEmpty()) {
+        qCWarning(cfLog, "`setAppId`should only be called once.");
+    }
+    _globalAppId = appId;
+    qCDebug(cfLog, "Explicitly specify application Id as appId=%s for config.", qPrintable(appId));
+}
+
+class DConfigThread : public QThread
+{
+public:
+    DConfigThread() {
+        setObjectName("DConfigGlobalThread");
+        start();
+    }
+
+    ~DConfigThread() override {
+        if (isRunning()) {
+            quit();
+            wait();
+        }
+    }
+};
+
+Q_GLOBAL_STATIC(DConfigThread, _globalThread)
+
+QThread *DConfig::globalThread()
+{
+    return _globalThread;
 }
 
 /*!

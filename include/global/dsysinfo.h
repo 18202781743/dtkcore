@@ -33,12 +33,15 @@ public:
         NixOS
     };
 
+    Q_ENUM(ProductType)
+
     enum DeepinType {
         UnknownDeepin = 0,
         DeepinDesktop,
         DeepinProfessional,
         DeepinServer,
-        DeepinPersonal
+        DeepinPersonal,
+        DeepinMilitary
     };
 
     enum LogoType {
@@ -59,6 +62,7 @@ public:
         UosDesktop,
         UosServer,
         UosDevice,
+        UosSmart,
 
         UosTypeCount // must at last
     };

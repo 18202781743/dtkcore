@@ -30,14 +30,25 @@ Q_LOGGING_CATEGORY(logFE, "dtk.dci.fileengine", QtInfoMsg)
 #define DCI_FILE_SCHEME "dci:"
 #define DCI_FILE_SUFFIX ".dci"
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+std::unique_ptr<QAbstractFileEngine> DDciFileEngineHandler::create(const QString &fileName) const
+#else
 QAbstractFileEngine *DDciFileEngineHandler::create(const QString &fileName) const
+#endif
 {
     if (!fileName.startsWith(QStringLiteral(DCI_FILE_SCHEME)))
         return nullptr;
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    std::unique_ptr<DDciFileEngine> engine(new DDciFileEngine(fileName));
+#else
     DDciFileEngine *engine = new DDciFileEngine(fileName);
+#endif
+
     if (!engine->isValid()) {
+#if QT_VERSION < QT_VERSION_CHECK(6, 8, 0)
         delete engine;
+#endif
         return nullptr;
     }
 
@@ -66,11 +77,24 @@ static DDciFileShared getDciFile(const QString &dciFilePath, bool usePath = true
 }
 
 DDciFileEngineIterator::DDciFileEngineIterator(QDir::Filters filters, const QStringList &nameFilters)
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    : QAbstractFileEngineIterator(nullptr, filters, nameFilters)
+#else
     : QAbstractFileEngineIterator(filters, nameFilters)
+#endif
 {
 
 }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 1)
+DDciFileEngineIterator::DDciFileEngineIterator(QDirListing::IteratorFlags filters, const QStringList &nameFilters)
+    : QAbstractFileEngineIterator(nullptr, filters, nameFilters)
+{
+
+}
+#endif
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 8, 0)
 QString DDciFileEngineIterator::next()
 {
     current = nextValid;
@@ -78,6 +102,9 @@ QString DDciFileEngineIterator::next()
 }
 
 bool DDciFileEngineIterator::hasNext() const
+#else
+bool DDciFileEngineIterator::advance()
+#endif
 {
     if (!file) {
         const auto paths = DDciFileEngine::resolvePath(path());
@@ -111,6 +138,9 @@ bool DDciFileEngineIterator::hasNext() const
             continue;
 
         nextValid = i;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+        current = nextValid;
+#endif
         return true;
     }
 
@@ -531,17 +561,38 @@ void DDciFileEngine::setFileName(const QString &fullPath)
     file = getDciFile(dciFilePath, QFile::exists(dciFilePath));
 }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 1)
+QDateTime DDciFileEngine::fileTime(QFile::FileTime time) const
+{
+    return QFileInfo(dciFilePath).fileTime(time);
+}
+#else
 QDateTime DDciFileEngine::fileTime(QAbstractFileEngine::FileTime time) const
 {
     return QFileInfo(dciFilePath).fileTime(static_cast<QFile::FileTime>(time));
 }
-
+#endif
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 1)
+QAbstractFileEngine::IteratorUniquePtr DDciFileEngine::beginEntryList(const QString &path, QDirListing::IteratorFlags filters, const QStringList &filterNames)
+#elif QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+QAbstractFileEngine::IteratorUniquePtr DDciFileEngine::beginEntryList(const QString &path, QDir::Filters filters, const QStringList &filterNames)
+#else
 DDciFileEngine::Iterator *DDciFileEngine::beginEntryList(QDir::Filters filters, const QStringList &filterNames)
+#endif
 {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    Q_UNUSED(path);
+    return QAbstractFileEngine::IteratorUniquePtr(new DDciFileEngineIterator(filters, filterNames));
+#else
     return new DDciFileEngineIterator(filters, filterNames);
+#endif
 }
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+QAbstractFileEngine::IteratorUniquePtr DDciFileEngine::endEntryList()
+#else
 DDciFileEngine::Iterator *DDciFileEngine::endEntryList()
+#endif
 {
     return nullptr;
 }

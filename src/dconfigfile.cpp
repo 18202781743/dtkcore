@@ -45,6 +45,20 @@ inline static bool subpathIsValid(const QString &subpath, const QDir &dir)
     const QDir subDir(dir.filePath(subpath.mid(1)));
     return subDir.absolutePath().startsWith(dir.absolutePath());
 }
+// name must be a valid filename.
+inline static bool isValidFilename(const QString& filename)
+{
+    static const QRegularExpression regex("^[\\w\\-\\.\\ ]+$");
+    QRegularExpressionMatch match = regex.match(filename);
+    return match.hasMatch();
+}
+// AppId don't contain ' ', but it can be empty.
+inline static bool isValidAppId(const QString& appId)
+{
+    static const QRegularExpression regex("^[\\w\\-\\.]*$");
+    QRegularExpressionMatch match = regex.match(appId);
+    return match.hasMatch();
+}
 /*!
 @~english
   \internal
@@ -336,6 +350,8 @@ public:
                 flags |= DConfigFile::NoOverride;
             } else if (flag == QLatin1String("global")) {
                 flags |= DConfigFile::Global;
+            } else if (flag == QLatin1String("user-public")) {
+                flags |= DConfigFile::UserPublic;
             }
         }
 
@@ -680,6 +696,14 @@ public:
 
     bool load(const QString &localPrefix) override
     {
+        if (!isValidAppId(configKey.appId)) {
+            qCWarning(cfLog, "AppId is invalid, appId=%s", qPrintable(configKey.appId));
+            return false;
+        }
+        if (!isValidFilename(configKey.fileName)) {
+            qCWarning(cfLog, "Name is invalid, filename=%s", qPrintable(configKey.fileName));
+            return false;
+        }
         bool useAppIdForOverride = true;
         QString path = metaPath(localPrefix, &useAppIdForOverride);
         if (path.isEmpty()) {
@@ -1264,11 +1288,21 @@ public:
                     return cache->setValue(key, value, configMeta->serial(key), cache->uid(), appid);
 
                 // convert copy to meta's type, it promises `setValue` don't change meta's type.
+                // canConvert isn't explicit, e.g: QString is also can convert to double.
                 auto copy = value;
                 if (!copy.convert(metaValue.metaType())) {
                     qCWarning(cfLog) << "check type error, meta type is " << metaValue.metaType().name()
                                      << ", and now type is " << value.metaType().name();
                     return false;
+                }
+
+                 // TODO it's a bug of qt, MetaType of 1.0 is qlonglong instead of double in json file.
+                static const QVector<QMetaType> filterConvertType {
+                    QMetaType{QMetaType::Double}
+                };
+                // reset to origin value.
+                if (filterConvertType.contains(value.metaType())) {
+                    copy = value;
                 }
 #else
                 if (metaValue.type() == value.type())
@@ -1279,6 +1313,13 @@ public:
                     qCWarning(cfLog) << "check type error, meta type is " << metaValue.type()
                                      << ", and now type is " << value.type();
                     return false;
+                }
+
+                static const QVector<QVariant::Type> filterConvertType {
+                    QVariant::Double
+                };
+                if (filterConvertType.contains(value.type())) {
+                    copy = value;
                 }
 #endif
 
