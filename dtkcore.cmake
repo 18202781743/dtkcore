@@ -27,6 +27,9 @@ if(UNIX AND NOT APPLE)
 endif()
 
 set (BUILD_WITH_SYSTEMD OFF CACHE BOOL "Build with systemd")
+if (BUILD_WITH_SYSTEMD)
+    add_definitions(-DBUILD_WITH_SYSTEMD)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -92,6 +95,12 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/cmake/DtkTools/Dtk${DTK_VERSION_MAJOR}
 install(FILES cmake/DtkTools/DtkSettingsToolsMacros.cmake
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/Dtk${DTK_VERSION_MAJOR}Tools"
     RENAME Dtk${DTK_VERSION_MAJOR}SettingsToolsMacros.cmake)
+
+install(FILES cmake/DtkTools/DtkDBusMacros.cmake
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/Dtk${DTK_VERSION_MAJOR}Tools")
+
+install(FILES ${CMAKE_SOURCE_DIR}/cmake/DtkTools/DtkDConfigMacros.cmake
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/Dtk${DTK_VERSION_MAJOR}Tools")
 
 if (NOT DTK_VERSION_MAJOR)
     set(DCONFIG_DEPRECATED_FUNCS [=[

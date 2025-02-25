@@ -4,16 +4,18 @@
 
 #include <QtCore>
 #include "LogManager.h"
+#include <DSGApplication>
 #include <Logger.h>
 #include <ConsoleAppender.h>
 #include <RollingFileAppender.h>
 #include <JournalAppender.h>
-#include "dstandardpaths.h"
 
-#include "spdlog/spdlog.h"
+#include "dstandardpaths.h"
+#include "dconfig_org_deepin_dtk_preference.hpp"
 
 DCORE_BEGIN_NAMESPACE
 
+#define RULES_KEY ("rules")
 // Courtesy qstandardpaths_unix.cpp
 static void appendOrganizationAndApp(QString &path)
 {
@@ -39,16 +41,86 @@ public:
     {
     }
 
+    dconfig_org_deepin_dtk_preference *createDConfig(const QString &appId);
+    void initLoggingRules();
+    void updateLoggingRules();
+
     QString m_format;
     QString m_logPath;
     ConsoleAppender* m_consoleAppender = nullptr;
     RollingFileAppender* m_rollingFileAppender = nullptr;
     JournalAppender* m_journalAppender = nullptr;
+    QScopedPointer<dconfig_org_deepin_dtk_preference> m_dsgConfig;
+    QScopedPointer<dconfig_org_deepin_dtk_preference> m_fallbackConfig;
 
     DLogManager *q_ptr = nullptr;
     Q_DECLARE_PUBLIC(DLogManager)
 
 };
+
+dconfig_org_deepin_dtk_preference *DLogManagerPrivate::createDConfig(const QString &appId)
+{
+    if (appId.isEmpty())
+        return nullptr;
+
+    auto config = dconfig_org_deepin_dtk_preference::create(appId);
+    QObject::connect(config, &dconfig_org_deepin_dtk_preference::rulesChanged,
+                     config, [this](){ updateLoggingRules(); });
+
+    return config;
+}
+
+void DLogManagerPrivate::initLoggingRules()
+{
+    if (qEnvironmentVariableIsSet("DTK_DISABLED_LOGGING_RULES"))
+        return;
+
+    // 1. 未指定 fallbackId 时，以 dsgAppId 为准
+    QString dsgAppId = DSGApplication::id();
+    m_dsgConfig.reset(createDConfig(dsgAppId));
+
+    if (m_dsgConfig) {
+        QObject::connect(m_dsgConfig.data(), &dconfig_org_deepin_dtk_preference::configInitializeSucceed,
+                         m_dsgConfig.data(), [this](){ updateLoggingRules(); });
+        QObject::connect(m_dsgConfig.data(), &dconfig_org_deepin_dtk_preference::configInitializeFailed,
+                         m_dsgConfig.data(), [this, dsgAppId] {
+                             m_dsgConfig.reset();
+                             qWarning() << "Logging rules config is invalid, please check `appId` [" << dsgAppId << "]arg is correct";
+                         });
+    }
+
+    QString fallbackId = qgetenv("DTK_LOGGING_FALLBACK_APPID");
+    // 2. fallbackId 和 dsgAppId 非空且不等时，都创建和监听变化
+    if (!fallbackId.isEmpty() && fallbackId != dsgAppId)
+        m_fallbackConfig.reset(createDConfig(fallbackId));
+
+            // 3. 默认值和非默认值时，非默认值优先
+    if (m_fallbackConfig) {
+        QObject::connect(m_fallbackConfig.data(), &dconfig_org_deepin_dtk_preference::configInitializeSucceed,
+                         m_fallbackConfig.data(), [this](){ updateLoggingRules(); });
+        QObject::connect(m_fallbackConfig.data(), &dconfig_org_deepin_dtk_preference::configInitializeFailed,
+                         m_fallbackConfig.data(), [this, fallbackId] {
+                             m_fallbackConfig.reset();
+                             qWarning() << "Logging rules config is invalid, please check `appId` [" << fallbackId << "]arg is correct";
+                         });
+    }
+}
+
+void DLogManagerPrivate::updateLoggingRules()
+{
+    QVariant var;
+    // 4. 优先看 dsgConfig 是否默认值，其次 fallback 是否默认值
+    if (m_dsgConfig && m_dsgConfig->isInitializeSucceed() && !m_dsgConfig->rulesIsDefaultValue()) {
+        var = m_dsgConfig->rules();
+    } else if (m_fallbackConfig && m_dsgConfig->isInitializeSucceed() && !m_fallbackConfig->rulesIsDefaultValue()) {
+        var = m_fallbackConfig->rules();
+    } else if (m_dsgConfig && m_dsgConfig->isInitializeSucceed()) {
+        var = m_dsgConfig->rules();
+    }
+
+    if (var.isValid())
+        QLoggingCategory::setFilterRules(var.toString().replace(";", "\n"));
+}
 /*!
 @~english
   \class Dtk::Core::DLogManager
@@ -60,8 +132,7 @@ public:
 DLogManager::DLogManager()
     :d_ptr(new DLogManagerPrivate(this))
 {
-    spdlog::set_automatic_registration(true);
-    spdlog::set_pattern("%v");
+    d_ptr->initLoggingRules();
 }
 
 void DLogManager::initConsoleAppender(){
@@ -86,6 +157,8 @@ void DLogManager::initJournalAppender()
     Q_D(DLogManager);
     d->m_journalAppender = new JournalAppender();
     dlogger->registerAppender(d->m_journalAppender);
+#else
+    qWarning() <<  "BUILD_WITH_SYSTEMD not defined or OS not support!!";
 #endif
 }
 
@@ -174,7 +247,6 @@ QString DLogManager::joinPath(const QString &path, const QString &fileName){
 
 DLogManager::~DLogManager()
 {
-    spdlog::shutdown();
 }
 
 DCORE_END_NAMESPACE

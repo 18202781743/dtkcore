@@ -31,7 +31,7 @@ class LIBDTKCORESHARED_EXPORT DConfig : public QObject, public DObject
     Q_OBJECT
     D_DECLARE_PRIVATE(DConfig)
 
-    Q_PROPERTY(QStringList keyList READ keyList FINAL)
+    Q_PROPERTY(QStringList keyList READ keyList CONSTANT FINAL)
 
 public:
     explicit DConfig(const QString &name, const QString &subpath = QString(),
@@ -48,6 +48,9 @@ public:
                                   QObject *parent = nullptr);
     static DConfig *createGeneric(DConfigBackend *backend, const QString &name, const QString &subpath = QString(),
                                   QObject *parent = nullptr);
+
+    static void setAppId(const QString &appId);
+    static QThread *globalThread();
 
     QString backendName() const;
 
