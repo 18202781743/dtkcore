@@ -7,13 +7,18 @@
 #include <QVariant>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QLoggingCategory>
 
 DCORE_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(logSettings)
 
 class DSettingsOptionPrivate
 {
 public:
-    DSettingsOptionPrivate(DSettingsOption *parent) : q_ptr(parent) {}
+    DSettingsOptionPrivate(DSettingsOption *parent) : q_ptr(parent) {
+        qCDebug(logSettings, "DSettingsOptionPrivate created");
+    }
 
     void parseJson(const QString &prefixKey, const QJsonObject &option);
 
@@ -64,11 +69,12 @@ public:
 DSettingsOption::DSettingsOption(QObject *parent) :
     QObject(parent), dd_ptr(new DSettingsOptionPrivate(this))
 {
+    qCDebug(logSettings, "DSettingsOption created with parent");
 }
 
 DSettingsOption::~DSettingsOption()
 {
-
+    qCDebug(logSettings, "DSettingsOption destroyed");
 }
 
 /*!
@@ -79,6 +85,7 @@ DSettingsOption::~DSettingsOption()
 QPointer<DSettingsGroup> DSettingsOption::parentGroup() const
 {
     Q_D(const DSettingsOption);
+    qCDebug(logSettings, "Getting parent group for option: %s", qPrintable(d->key));
     return d->parent;
 }
 
@@ -91,6 +98,7 @@ QPointer<DSettingsGroup> DSettingsOption::parentGroup() const
 void DSettingsOption::setParentGroup(QPointer<DSettingsGroup> parentGroup)
 {
     Q_D(DSettingsOption);
+    qCDebug(logSettings, "Setting parent group for option: %s", qPrintable(d->key));
     d->parent = parentGroup;
 }
 
@@ -102,6 +110,7 @@ void DSettingsOption::setParentGroup(QPointer<DSettingsGroup> parentGroup)
 QString DSettingsOption::key() const
 {
     Q_D(const DSettingsOption);
+    qCDebug(logSettings, "Getting key: %s", qPrintable(d->key));
     return d->key;
 }
 
@@ -113,6 +122,7 @@ QString DSettingsOption::key() const
 QString DSettingsOption::name() const
 {
     Q_D(const DSettingsOption);
+    qCDebug(logSettings, "Getting name: %s", qPrintable(d->name));
     return d->name;
 }
 
@@ -125,6 +135,7 @@ QString DSettingsOption::name() const
 bool DSettingsOption::canReset() const
 {
     Q_D(const DSettingsOption);
+    qCDebug(logSettings, "Checking canReset for option: %s, result: %s", qPrintable(d->key), d->canReset ? "true" : "false");
     return d->canReset;
 }
 
@@ -137,6 +148,7 @@ bool DSettingsOption::canReset() const
 QVariant DSettingsOption::defaultValue() const
 {
     Q_D(const DSettingsOption);
+    qCDebug(logSettings, "Getting default value for option: %s", qPrintable(d->key));
     return d->defalutValue;
 }
 
@@ -149,7 +161,9 @@ QVariant DSettingsOption::defaultValue() const
 QVariant DSettingsOption::value() const
 {
     Q_D(const DSettingsOption);
-    return (!d->value.isValid() || d->value.isNull()) ? d->defalutValue : d->value;
+    QVariant result = (!d->value.isValid() || d->value.isNull()) ? d->defalutValue : d->value;
+    qCDebug(logSettings, "Getting value for option: %s, result: %s", qPrintable(d->key), qPrintable(result.toString()));
+    return result;
 }
 
 /*!
@@ -164,7 +178,9 @@ QVariant DSettingsOption::value() const
 QVariant DSettingsOption::data(const QString &dataType) const
 {
     Q_D(const DSettingsOption);
-    return d->datas.value(dataType);
+    QVariant result = d->datas.value(dataType);
+    qCDebug(logSettings, "Getting data for option: %s, type: %s", qPrintable(d->key), qPrintable(dataType));
+    return result;
 }
 
 /*!
@@ -177,6 +193,7 @@ QVariant DSettingsOption::data(const QString &dataType) const
 QString DSettingsOption::viewType() const
 {
     Q_D(const DSettingsOption);
+    qCDebug(logSettings, "Getting view type for option: %s, result: %s", qPrintable(d->key), qPrintable(d->viewType));
     return d->viewType;
 }
 
@@ -189,6 +206,7 @@ QString DSettingsOption::viewType() const
 bool DSettingsOption::isHidden() const
 {
     Q_D(const DSettingsOption);
+    qCDebug(logSettings, "Checking if hidden for option: %s, result: %s", qPrintable(d->key), d->hidden ? "true" : "false");
     return d->hidden;
 }
 
@@ -203,6 +221,7 @@ bool DSettingsOption::isHidden() const
  */
 QPointer<DSettingsOption> DSettingsOption::fromJson(const QString &prefixKey, const QJsonObject &json)
 {
+    qCDebug(logSettings, "Creating DSettingsOption from JSON with prefix: %s", qPrintable(prefixKey));
     auto optionPtr = QPointer<DSettingsOption>(new DSettingsOption);
     optionPtr->parseJson(prefixKey, json);
     return optionPtr;
@@ -217,9 +236,11 @@ QPointer<DSettingsOption> DSettingsOption::fromJson(const QString &prefixKey, co
 void DSettingsOption::setValue(QVariant value)
 {
     Q_D(DSettingsOption);
+    qCDebug(logSettings, "Setting value for option: %s to: %s", qPrintable(d->key), qPrintable(value.toString()));
 
     // 默认没有设置value时比较默认值。防止reset时出现所有的option都发射valueChanged
     if (this->value() == value) {
+        qCDebug(logSettings, "Value unchanged, skipping update");
         return;
     }
 
@@ -247,8 +268,10 @@ void DSettingsOption::setValue(QVariant value)
 void DSettingsOption::setData(const QString &dataType, QVariant value)
 {
     Q_D(DSettingsOption);
+    qCDebug(logSettings, "Setting data for option: %s, type: %s, value: %s", qPrintable(d->key), qPrintable(dataType), qPrintable(value.toString()));
 
     if (d->datas.value(dataType) == value) {
+        qCDebug(logSettings, "Data unchanged, skipping update");
         return;
     }
 
@@ -267,11 +290,13 @@ void DSettingsOption::setData(const QString &dataType, QVariant value)
 void DSettingsOption::parseJson(const QString &prefixKey, const QJsonObject &option)
 {
     Q_D(DSettingsOption);
+    qCDebug(logSettings, "Parsing JSON for option with prefix: %s", qPrintable(prefixKey));
     d->parseJson(prefixKey, option);
 }
 
 void DSettingsOptionPrivate::parseJson(const QString &prefixKey, const QJsonObject &option)
 {
+    qCDebug(logSettings, "Parsing JSON option data");
 //    Q_Q(Option);
     key = option.value("key").toString();
     Q_ASSERT(!key.isEmpty());
@@ -283,6 +308,10 @@ void DSettingsOptionPrivate::parseJson(const QString &prefixKey, const QJsonObje
     defalutValue = option.value("default").toVariant();
     hidden = !option.contains("hide") ? false : option.value("hide").toBool();
     viewType = option.value("type").toString();
+
+    qCDebug(logSettings, "Parsed option - key: %s, name: %s, canReset: %s, hidden: %s, viewType: %s", 
+            qPrintable(key), qPrintable(name), canReset ? "true" : "false", 
+            hidden ? "true" : "false", qPrintable(viewType));
 
     QStringList revserdKeys;
     revserdKeys << "key" << "name" << "reset"
@@ -305,6 +334,8 @@ void DSettingsOptionPrivate::parseJson(const QString &prefixKey, const QJsonObje
             datas.insert(key, value.toVariant());
         }
     }
+    
+    qCDebug(logSettings, "Parsed %d custom data entries", datas.size());
 }
 
 DCORE_END_NAMESPACE

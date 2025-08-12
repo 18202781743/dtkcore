@@ -9,16 +9,24 @@
 #include <ConsoleAppender.h>
 #include <RollingFileAppender.h>
 #include <JournalAppender.h>
+#include <QLoggingCategory>
 
 #include "dstandardpaths.h"
 #include "dconfig_org_deepin_dtk_preference.hpp"
 
 DCORE_BEGIN_NAMESPACE
 
+#ifdef QT_DEBUG
+Q_LOGGING_CATEGORY(logLogManager, "dtk.core.logmanager")
+#else
+Q_LOGGING_CATEGORY(logLogManager, "dtk.core.logmanager", QtInfoMsg)
+#endif
+
 #define RULES_KEY ("rules")
 // Courtesy qstandardpaths_unix.cpp
 static void appendOrganizationAndApp(QString &path)
 {
+    qCDebug(logLogManager) << "Appending organization and app to path:" << path;
 #ifndef QT_BOOTSTRAPPED
     const QString org = QCoreApplication::organizationName();
     if (!org.isEmpty())
@@ -29,6 +37,7 @@ static void appendOrganizationAndApp(QString &path)
 #else
     Q_UNUSED(path);
 #endif
+    qCDebug(logLogManager) << "Path after appending:" << path;
 }
 
 #define DEFAULT_FMT "%{time}{yyyy-MM-dd, HH:mm:ss.zzz} [%{type:-7}] [%{file:-20} %{function:-35} %{line}] %{message}"
@@ -39,6 +48,7 @@ public:
         : m_format(DEFAULT_FMT)
         , q_ptr(q)
     {
+        qCDebug(logLogManager) << "DLogManagerPrivate created";
     }
 
     dconfig_org_deepin_dtk_preference *createDConfig(const QString &appId);
@@ -60,66 +70,92 @@ public:
 
 dconfig_org_deepin_dtk_preference *DLogManagerPrivate::createDConfig(const QString &appId)
 {
-    if (appId.isEmpty())
+    qCDebug(logLogManager) << "Creating DConfig for appId:" << appId;
+    if (appId.isEmpty()) {
+        qCWarning(logLogManager) << "AppId is empty, cannot create DConfig";
         return nullptr;
+    }
 
     auto config = dconfig_org_deepin_dtk_preference::create(appId);
     QObject::connect(config, &dconfig_org_deepin_dtk_preference::rulesChanged,
                      config, [this](){ updateLoggingRules(); });
 
+    qCDebug(logLogManager) << "DConfig created successfully for appId:" << appId;
     return config;
 }
 
 void DLogManagerPrivate::initLoggingRules()
 {
-    if (qEnvironmentVariableIsSet("DTK_DISABLED_LOGGING_RULES") || qEnvironmentVariableIsSet("QT_LOGGING_RULES"))
+    qCDebug(logLogManager) << "Initializing logging rules";
+    if (qEnvironmentVariableIsSet("DTK_DISABLED_LOGGING_RULES") || qEnvironmentVariableIsSet("QT_LOGGING_RULES")) {
+        qCDebug(logLogManager) << "Logging rules disabled by environment variables";
         return;
+    }
 
     // 1. 未指定 fallbackId 时，以 dsgAppId 为准
     QString dsgAppId = DSGApplication::id();
+    qCDebug(logLogManager) << "DSG Application ID:" << dsgAppId;
     m_dsgConfig.reset(createDConfig(dsgAppId));
 
     if (m_dsgConfig) {
+        qCDebug(logLogManager) << "DSG config created successfully";
         QObject::connect(m_dsgConfig.data(), &dconfig_org_deepin_dtk_preference::configInitializeSucceed,
                          m_dsgConfig.data(), [this](){ updateLoggingRules(); });
         QObject::connect(m_dsgConfig.data(), &dconfig_org_deepin_dtk_preference::configInitializeFailed,
                          m_dsgConfig.data(), [this, dsgAppId] {
                              m_dsgConfig.reset();
-                             qWarning() << "Logging rules config is invalid, please check `appId` [" << dsgAppId << "]arg is correct";
+                             qCWarning(logLogManager) << "Logging rules config is invalid, please check `appId` [" << dsgAppId << "] arg is correct";
                          });
+    } else {
+        qCWarning(logLogManager) << "Failed to create DSG config for appId:" << dsgAppId;
     }
 
     QString fallbackId = qgetenv("DTK_LOGGING_FALLBACK_APPID");
+    qCDebug(logLogManager) << "Fallback app ID:" << fallbackId;
     // 2. fallbackId 和 dsgAppId 非空且不等时，都创建和监听变化
-    if (!fallbackId.isEmpty() && fallbackId != dsgAppId)
+    if (!fallbackId.isEmpty() && fallbackId != dsgAppId) {
+        qCDebug(logLogManager) << "Creating fallback config";
         m_fallbackConfig.reset(createDConfig(fallbackId));
+    }
 
-            // 3. 默认值和非默认值时，非默认值优先
+    // 3. 默认值和非默认值时，非默认值优先
     if (m_fallbackConfig) {
+        qCDebug(logLogManager) << "Fallback config created successfully";
         QObject::connect(m_fallbackConfig.data(), &dconfig_org_deepin_dtk_preference::configInitializeSucceed,
                          m_fallbackConfig.data(), [this](){ updateLoggingRules(); });
         QObject::connect(m_fallbackConfig.data(), &dconfig_org_deepin_dtk_preference::configInitializeFailed,
                          m_fallbackConfig.data(), [this, fallbackId] {
                              m_fallbackConfig.reset();
-                             qWarning() << "Logging rules config is invalid, please check `appId` [" << fallbackId << "]arg is correct";
+                             qCWarning(logLogManager) << "Logging rules config is invalid, please check `appId` [" << fallbackId << "] arg is correct";
                          });
     }
 }
 
 void DLogManagerPrivate::updateLoggingRules()
 {
+    qCDebug(logLogManager) << "DLogManagerPrivate updateLoggingRules called";
     QVariant var;
     // 4. 优先看 dsgConfig 是否默认值，其次 fallback 是否默认值
     if (m_dsgConfig && m_dsgConfig->isInitializeSucceed() && !m_dsgConfig->rulesIsDefaultValue()) {
+        qCDebug(logLogManager) << "Using DSG config rules (non-default)";
         var = m_dsgConfig->rules();
     } else if (m_fallbackConfig && m_dsgConfig->isInitializeSucceed() && !m_fallbackConfig->rulesIsDefaultValue()) {
+        qCDebug(logLogManager) << "Using fallback config rules (non-default)";
         var = m_fallbackConfig->rules();
     } else if (m_dsgConfig && m_dsgConfig->isInitializeSucceed()) {
+        qCDebug(logLogManager) << "Using DSG config rules (default)";
         var = m_dsgConfig->rules();
+    } else {
+        qCDebug(logLogManager) << "No valid config found for logging rules";
     }
 
-    if (var.isValid())
-        QLoggingCategory::setFilterRules(var.toString().replace(";", "\n"));
+    if (var.isValid()) {
+        QString rules = var.toString().replace(";", "\n");
+        qCDebug(logLogManager) << "Setting logging rules:" << rules;
+        QLoggingCategory::setFilterRules(rules);
+    } else {
+        qCDebug(logLogManager) << "No valid logging rules to set";
+    }
 }
 /*!
 @~english
@@ -136,29 +172,37 @@ DLogManager::DLogManager()
 }
 
 void DLogManager::initConsoleAppender(){
+    qCDebug(logLogManager) << "DLogManager initConsoleAppender called";
     Q_D(DLogManager);
     d->m_consoleAppender = new ConsoleAppender;
     d->m_consoleAppender->setFormat(d->m_format);
     dlogger->registerAppender(d->m_consoleAppender);
+    qCDebug(logLogManager) << "DLogManager console appender initialized successfully";
 }
 
 void DLogManager::initRollingFileAppender(){
+    qCDebug(logLogManager) << "DLogManager initRollingFileAppender called";
     Q_D(DLogManager);
-    d->m_rollingFileAppender = new RollingFileAppender(getlogFilePath());
+    QString logFilePath = getlogFilePath();
+    qCDebug(logLogManager) << "DLogManager using log file path:" << logFilePath;
+    d->m_rollingFileAppender = new RollingFileAppender(logFilePath);
     d->m_rollingFileAppender->setFormat(d->m_format);
     d->m_rollingFileAppender->setLogFilesLimit(5);
     d->m_rollingFileAppender->setDatePattern(RollingFileAppender::DailyRollover);
     dlogger->registerAppender(d->m_rollingFileAppender);
+    qCDebug(logLogManager) << "DLogManager rolling file appender initialized successfully";
 }
 
 void DLogManager::initJournalAppender()
 {
+    qCDebug(logLogManager) << "DLogManager initJournalAppender called";
 #if (defined BUILD_WITH_SYSTEMD && defined Q_OS_LINUX)
     Q_D(DLogManager);
     d->m_journalAppender = new JournalAppender();
     dlogger->registerAppender(d->m_journalAppender);
+    qCDebug(logLogManager) << "DLogManager journal appender initialized successfully";
 #else
-    qWarning() <<  "BUILD_WITH_SYSTEMD not defined or OS not support!!";
+    qCWarning(logLogManager) << "BUILD_WITH_SYSTEMD not defined or OS not support!!";
 #endif
 }
 
@@ -169,6 +213,7 @@ void DLogManager::initJournalAppender()
   \sa registerFileAppender
  */
 void DLogManager::registerConsoleAppender(){
+    qCDebug(logLogManager) << "DLogManager registerConsoleAppender called";
     DLogManager::instance()->initConsoleAppender();
 }
 
@@ -180,11 +225,13 @@ void DLogManager::registerConsoleAppender(){
   \sa registerConsoleAppender
  */
 void DLogManager::registerFileAppender() {
+    qCDebug(logLogManager) << "DLogManager registerFileAppender called";
     DLogManager::instance()->initRollingFileAppender();
 }
 
 void DLogManager::registerJournalAppender()
 {
+    qCDebug(logLogManager) << "DLogManager registerJournalAppender called";
     DLogManager::instance()->initJournalAppender();
 }
 
@@ -199,24 +246,35 @@ void DLogManager::registerJournalAppender()
  */
 QString DLogManager::getlogFilePath()
 {
+    qCDebug(logLogManager) << "DLogManager getlogFilePath called";
     //No longer set the default log path (and mkdir) when constructing now, instead set the default value if it's empty when getlogFilePath is called.
     //Fix the problem that the log file is still created in the default path when the log path is set manually.
     if (DLogManager::instance()->d_func()->m_logPath.isEmpty()) {
+        qCDebug(logLogManager) << "DLogManager log path is empty, setting default path";
         if (DStandardPaths::homePath().isEmpty()) {
-            qWarning() << "Unable to locate the cache directory, cannot acquire home directory, and the log will not be written to file..";
+            qCWarning(logLogManager) << "Unable to locate the cache directory, cannot acquire home directory, and the log will not be written to file..";
             return QString();
         }
 
         QString cachePath(DStandardPaths::path(DStandardPaths::XDG::CacheHome));
+        qCDebug(logLogManager) << "DLogManager cache path:" << cachePath;
         appendOrganizationAndApp(cachePath);
+        qCDebug(logLogManager) << "DLogManager cache path after append:" << cachePath;
 
         if (!QDir(cachePath).exists()) {
+            qCDebug(logLogManager) << "DLogManager creating cache directory:" << cachePath;
             QDir(cachePath).mkpath(cachePath);
         }
-        instance()->d_func()->m_logPath = instance()->joinPath(cachePath, QString("%1.log").arg(QCoreApplication::applicationName()));
+        QString logPath = instance()->joinPath(cachePath, QString("%1.log").arg(QCoreApplication::applicationName()));
+        qCDebug(logLogManager) << "DLogManager setting log path:" << logPath;
+        instance()->d_func()->m_logPath = logPath;
+    } else {
+        qCDebug(logLogManager) << "DLogManager using existing log path:" << DLogManager::instance()->d_func()->m_logPath;
     }
 
-    return QDir::toNativeSeparators(DLogManager::instance()->d_func()->m_logPath);
+    QString result = QDir::toNativeSeparators(DLogManager::instance()->d_func()->m_logPath);
+    qCDebug(logLogManager) << "DLogManager getlogFilePath result:" << result;
+    return result;
 }
 
 /*!
@@ -227,26 +285,35 @@ QString DLogManager::getlogFilePath()
  */
 void DLogManager::setlogFilePath(const QString &logFilePath)
 {
+    qCDebug(logLogManager) << "DLogManager setlogFilePath called with:" << logFilePath;
     QFileInfo info(logFilePath);
-    if (info.exists() && !info.isFile())
-        qWarning() << "invalid file path:" << logFilePath << " is not a file";
-    else
+    if (info.exists() && !info.isFile()) {
+        qCWarning(logLogManager) << "Invalid file path:" << logFilePath << "is not a file";
+    } else {
+        qCDebug(logLogManager) << "DLogManager setting log path to:" << logFilePath;
         DLogManager::instance()->d_func()->m_logPath = logFilePath;
+    }
 }
 
 void DLogManager::setLogFormat(const QString &format)
 {
+    qCDebug(logLogManager) << "DLogManager setLogFormat called with:" << format;
     //m_format = "%{time}{yyyy-MM-dd, HH:mm:ss.zzz} [%{type:-7}] [%{file:-20} %{function:-35} %{line}] %{message}\n";
     DLogManager::instance()->d_func()->m_format = format;
+    qCDebug(logLogManager) << "DLogManager log format set successfully";
 }
 
 QString DLogManager::joinPath(const QString &path, const QString &fileName){
+    qCDebug(logLogManager) << "DLogManager joinPath called with path:" << path << ", fileName:" << fileName;
     QString separator(QDir::separator());
-    return QString("%1%2%3").arg(path, separator, fileName);
+    QString result = QString("%1%2%3").arg(path, separator, fileName);
+    qCDebug(logLogManager) << "DLogManager joinPath result:" << result;
+    return result;
 }
 
 DLogManager::~DLogManager()
 {
+    qCDebug(logLogManager) << "DLogManager destructor called";
 }
 
 DCORE_END_NAMESPACE

@@ -6,6 +6,7 @@
 
 #include <QFileInfo>
 #include <algorithm>
+#include <QLoggingCategory>
 #ifdef Q_OS_LINUX
 #include <sys/mman.h>
 #include <unistd.h>
@@ -19,17 +20,23 @@ QT_END_NAMESPACE
 
 DCORE_BEGIN_NAMESPACE
 
+Q_LOGGING_CATEGORY(logUtil, "dtk.core.util")
+
 QMap<quintptr**, quintptr*> DVtableHook::objToOriginalVfptr;
 QMap<const void*, quintptr*> DVtableHook::objToGhostVfptr;
 QMap<const void*, quintptr> DVtableHook::objDestructFun;
 
 bool DVtableHook::copyVtable(quintptr **obj)
 {
+    qCDebug(logUtil) << "Copying vtable for object:" << *obj;
     int vtable_size = getVtableSize(obj);
 
-    if (vtable_size == 0)
+    if (vtable_size == 0) {
+        qCWarning(logUtil) << "Vtable size is 0, cannot copy";
         return false;
+    }
 
+    qCDebug(logUtil) << "Vtable size:" << vtable_size;
     // 多开辟一个元素, 新的虚表结构如下:
     // 假设原虚表内存布局如下(考虑多继承):
     //                                             C Vtable (7 entities)
@@ -83,23 +90,28 @@ bool DVtableHook::copyVtable(quintptr **obj)
     //! save ghost vfptr
     objToGhostVfptr[obj] = new_vtable;
 
+    qCDebug(logUtil) << "Vtable copied successfully";
     return true;
 }
 
 bool DVtableHook::clearGhostVtable(const void *obj)
 {
-    if (!objToOriginalVfptr.remove((quintptr **)obj)) // Uninitialized memory may have values, for resetVtable
+    qCDebug(logUtil) << "Clearing ghost vtable for object:" << obj;
+    if (!objToOriginalVfptr.remove((quintptr **)obj)) { // Uninitialized memory may have values, for resetVtable
+        qCDebug(logUtil) << "Object not found in original vtable map";
         return false;
+    }
     objDestructFun.remove(obj);
 
     quintptr *vtable = objToGhostVfptr.take(obj);
 
     if (vtable) {
         delete[] vtable;
-
+        qCDebug(logUtil) << "Ghost vtable cleared successfully";
         return true;
     }
 
+    qCDebug(logUtil) << "No ghost vtable found for object";
     return false;
 }
 
@@ -111,10 +123,12 @@ bool DVtableHook::clearGhostVtable(const void *obj)
  */
 int DVtableHook::getDestructFunIndex(quintptr **obj, std::function<void(void)> destoryObjFun)
 {
+    qCDebug(logUtil) << "Getting destruct function index for object:" << *obj;
     class _DestoryProbe
     {
     public:
         static quintptr probe(quintptr obj) {
+            qCDebug(logUtil) << "Probing destruct function for object:" << (void*)obj;
             static quintptr _obj = 0;
 
             if (obj == 0) {
@@ -128,7 +142,7 @@ int DVtableHook::getDestructFunIndex(quintptr **obj, std::function<void(void)> d
         }
 
         static void nothing() {
-
+            qCDebug(logUtil) << "Destruct probe nothing called";
         }
     };
 
@@ -169,12 +183,16 @@ int DVtableHook::getDestructFunIndex(quintptr **obj, std::function<void(void)> d
 
 void DVtableHook::autoCleanVtable(const void *obj)
 {
+    qCDebug(logUtil) << "Auto cleaning vtable for object:" << obj;
     quintptr fun = objDestructFun.value(obj);
 
-    if (!fun)
+    if (!fun) {
+        qCDebug(logUtil) << "No destruct function found for object";
         return;
+    }
 
     if (hasVtable(obj)) {// 需要判断一下，有可能在执行析构函数时虚表已经被删除
+        qCDebug(logUtil) << "Clearing ghost vtable for object";
         // clean
         clearGhostVtable(obj);
     }
@@ -182,11 +200,13 @@ void DVtableHook::autoCleanVtable(const void *obj)
     typedef void(*Destruct)(const void*);
     Destruct destruct = reinterpret_cast<Destruct>(fun);
     // call origin destruct function
+    qCDebug(logUtil) << "Calling original destruct function for object";
     destruct(obj);
 }
 
 bool DVtableHook::ensureVtable(const void *obj, std::function<void ()> destoryObjFun)
 {
+    qCDebug(logUtil) << "Ensuring vtable for object:" << obj;
     quintptr **_obj = (quintptr**)(obj);
 
     if (objToOriginalVfptr.contains(_obj)) {
@@ -227,27 +247,36 @@ bool DVtableHook::ensureVtable(const void *obj, std::function<void ()> destoryOb
  */
 bool DVtableHook::hasVtable(const void *obj)
 {
+    qCDebug(logUtil) << "Checking if object has vtable:" << obj;
     quintptr **_obj = (quintptr**)(obj);
 
-    return objToGhostVfptr.contains(_obj);
+    bool result = objToGhostVfptr.contains(_obj);
+    qCDebug(logUtil) << "Object has vtable:" << result;
+    return result;
 }
 
 void DVtableHook::resetVtable(const void *obj)
 {
+    qCDebug(logUtil) << "Resetting vtable for object:" << obj;
     quintptr **_obj = (quintptr**)obj;
     int vtable_size = getVtableSize(_obj);
     // 获取obj对象原本虚表的入口
     auto vtableHead = adjustToTop(*_obj);
     quintptr *vfptr_t2 = (quintptr*)vtableHead[vtable_size + 1]; // _obj - 2 + vtable_size + 1
 
-    if (!vfptr_t2)
+    if (!vfptr_t2) {
+        qCDebug(logUtil) << "No original vtable found";
         return;
+    }
 
-    if (!clearGhostVtable(obj))
+    if (!clearGhostVtable(obj)) {
+        qCDebug(logUtil) << "Failed to clear ghost vtable";
         return;
+    }
 
     // 还原虚表
     *_obj = vfptr_t2;
+    qCDebug(logUtil) << "Vtable reset successfully";
 }
 
 /*!
@@ -258,17 +287,19 @@ void DVtableHook::resetVtable(const void *obj)
  */
 quintptr DVtableHook::resetVfptrFun(const void *obj, quintptr functionOffset)
 {
+    qCDebug(logUtil) << "Resetting vfptr function for object:" << obj << "offset:" << (void*)functionOffset;
     quintptr *vfptr_t1 = *(quintptr **)obj;
     quintptr current_fun = *(vfptr_t1 + functionOffset / sizeof(quintptr));
     quintptr origin_fun = originalFun(obj, functionOffset);
 
     if (!origin_fun) {
+        qCWarning(logUtil) << "Original function not found for object:" << obj;
         return 0;
     }
 
     // reset to original fun
     *(vfptr_t1 + functionOffset / sizeof(quintptr)) = origin_fun;
-
+    qCDebug(logUtil) << "Vfptr function reset successfully";
     return current_fun;
 }
 
@@ -278,9 +309,10 @@ quintptr DVtableHook::resetVfptrFun(const void *obj, quintptr functionOffset)
  */
 quintptr DVtableHook::originalFun(const void *obj, quintptr functionOffset)
 {
+    qCDebug(logUtil) << "Getting original function for object:" << obj << "offset:" << (void*)functionOffset;
     quintptr **_obj = (quintptr **)obj;
     if (!hasVtable(obj)) {
-        qCWarning(vtableHook) << "Not override the object virtual table: " << obj;
+        qCWarning(logUtil) << "Not override the object virtual table:" << obj;
         return 0;
     }
 
@@ -289,11 +321,13 @@ quintptr DVtableHook::originalFun(const void *obj, quintptr functionOffset)
     quintptr *vfptr_t2 = (quintptr*)(*_obj)[vtable_size - 1];
 
     if (functionOffset > UINT_LEAST16_MAX) {
-        qCWarning(vtableHook, "Is not a virtual function, function address: 0X%llx", functionOffset);
+        qCWarning(logUtil) << "Is not a virtual function, function address: 0X" << QString::number(functionOffset, 16);
         return 0;
     }
 
-    return *(vfptr_t2 + functionOffset / sizeof(quintptr));
+    quintptr result = *(vfptr_t2 + functionOffset / sizeof(quintptr));
+    qCDebug(logUtil) << "Original function retrieved:" << (void*)result;
+    return result;
 }
 
 #if DTK_VERSION < DTK_VERSION_CHECK(6, 0, 0, 0)
@@ -373,6 +407,7 @@ static int readProtFromPsm(quintptr adr, size_t length)
 
 bool DVtableHook::forceWriteMemory(void *adr, const void *data, size_t length)
 {
+    qCDebug(logUtil) << "Force writing memory at address:" << adr << "length:" << length;
 #ifdef Q_OS_LINUX
     int page_size = sysconf(_SC_PAGESIZE);
     quintptr x = reinterpret_cast<quintptr>(adr);
@@ -385,7 +420,7 @@ bool DVtableHook::forceWriteMemory(void *adr, const void *data, size_t length)
     // 增加判断是否已经可写，不能写才调用。
     // 失败时直接放弃
     if (!writeable && mprotect(new_adr, override_data_length, PROT_READ | PROT_WRITE)) {
-        qCWarning(vtableHook, "mprotect(change) failed: %s", strerror(errno));
+        qCWarning(logUtil) << "mprotect(change) failed:" << strerror(errno);
         return false;
     }
 #endif
@@ -394,11 +429,11 @@ bool DVtableHook::forceWriteMemory(void *adr, const void *data, size_t length)
 #ifdef Q_OS_LINUX
     // 恢复内存标志位
     if (!writeable && mprotect(new_adr, override_data_length, oldProt)) {
-        qCWarning(vtableHook, "mprotect(restore) failed: %s", strerror(errno));
+        qCWarning(logUtil) << "mprotect(restore) failed:" << strerror(errno);
         return false;
     }
 #endif
-
+    qCDebug(logUtil) << "Memory written successfully";
     return true;
 }
 

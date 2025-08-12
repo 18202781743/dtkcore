@@ -7,13 +7,18 @@
 #include <QMap>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QLoggingCategory>
 
 DCORE_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(logSettings)
 
 class DSettingsGroupPrivate
 {
 public:
-    DSettingsGroupPrivate(DSettingsGroup *parent) : q_ptr(parent) {}
+    DSettingsGroupPrivate(DSettingsGroup *parent) : q_ptr(parent) {
+        qCDebug(logSettings) << "DSettingsGroupPrivate created";
+    }
 
     QString key;
     QString name;
@@ -46,12 +51,12 @@ public:
 DSettingsGroup::DSettingsGroup(QObject *parent) :
     QObject(parent), dd_ptr(new DSettingsGroupPrivate(this))
 {
-
+    qCDebug(logSettings) << "DSettingsGroup created with parent";
 }
 
 DSettingsGroup::~DSettingsGroup()
 {
-
+    qCDebug(logSettings) << "DSettingsGroup destroyed";
 }
 
 /*!
@@ -62,6 +67,7 @@ DSettingsGroup::~DSettingsGroup()
 QPointer<DSettingsGroup> DSettingsGroup::parentGroup() const
 {
     Q_D(const DSettingsGroup);
+    qCDebug(logSettings) << "Getting parent group";
     return d->parent;
 }
 
@@ -72,6 +78,7 @@ QPointer<DSettingsGroup> DSettingsGroup::parentGroup() const
 void DSettingsGroup::setParentGroup(QPointer<DSettingsGroup> parentGroup)
 {
     Q_D(DSettingsGroup);
+    qCDebug(logSettings) << "Setting parent group:" << parentGroup.data();
     d->parent = parentGroup;
 }
 
@@ -83,6 +90,7 @@ void DSettingsGroup::setParentGroup(QPointer<DSettingsGroup> parentGroup)
 QString DSettingsGroup::key() const
 {
     Q_D(const DSettingsGroup);
+    qCDebug(logSettings) << "Getting key:" << d->key;
     return d->key;
 }
 
@@ -94,6 +102,7 @@ QString DSettingsGroup::key() const
 QString DSettingsGroup::name() const
 {
     Q_D(const DSettingsGroup);
+    qCDebug(logSettings) << "Getting name:" << d->name;
     return d->name;
 }
 
@@ -104,8 +113,11 @@ QString DSettingsGroup::name() const
  */
 bool DSettingsGroup::isHidden() const
 {
+    qCDebug(logSettings, "DSettingsGroup isHidden called");
     Q_D(const DSettingsGroup);
-    return d->hide;
+    bool hidden = d->hide;
+    qCDebug(logSettings, "DSettingsGroup isHidden result: %s", hidden ? "true" : "false");
+    return hidden;
 }
 
 /*!
@@ -117,8 +129,11 @@ bool DSettingsGroup::isHidden() const
  */
 QPointer<DSettingsGroup> DSettingsGroup::childGroup(const QString &groupKey) const
 {
+    qCDebug(logSettings, "DSettingsGroup childGroup called for key: %s", qPrintable(groupKey));
     Q_D(const DSettingsGroup);
-    return d->childGroups.value(groupKey);
+    QPointer<DSettingsGroup> result = d->childGroups.value(groupKey);
+    qCDebug(logSettings, "DSettingsGroup childGroup result: %s", result ? "found" : "not found");
+    return result;
 }
 
 /*!
@@ -130,8 +145,11 @@ QPointer<DSettingsGroup> DSettingsGroup::childGroup(const QString &groupKey) con
  */
 QPointer<DSettingsOption> DSettingsGroup::option(const QString &key) const
 {
+    qCDebug(logSettings, "DSettingsGroup option called for key: %s", qPrintable(key));
     Q_D(const DSettingsGroup);
-    return d->childOptions.value(key);
+    QPointer<DSettingsOption> result = d->childOptions.value(key);
+    qCDebug(logSettings, "DSettingsGroup option result: %s", result ? "found" : "not found");
+    return result;
 }
 
 /*!
@@ -142,11 +160,13 @@ QPointer<DSettingsOption> DSettingsGroup::option(const QString &key) const
  */
 QList<QPointer<DSettingsGroup> > DSettingsGroup::childGroups() const
 {
+    qCDebug(logSettings, "DSettingsGroup childGroups called");
     Q_D(const DSettingsGroup);
     QList<QPointer<DSettingsGroup> > grouplist;
     for (auto groupKey : d->childGroupKeys) {
         grouplist << d->childGroups.value(groupKey);
     }
+    qCDebug(logSettings, "DSettingsGroup childGroups returning %d groups", grouplist.size());
     return grouplist;
 }
 
@@ -157,11 +177,13 @@ QList<QPointer<DSettingsGroup> > DSettingsGroup::childGroups() const
  */
 QList<QPointer<DSettingsOption> > DSettingsGroup::childOptions() const
 {
+    qCDebug(logSettings, "DSettingsGroup childOptions called");
     Q_D(const DSettingsGroup);
     QList<QPointer<DSettingsOption> > optionlist;
     for (auto optionKey : d->childOptionKeys) {
         optionlist << d->childOptions.value(optionKey);
     }
+    qCDebug(logSettings, "DSettingsGroup childOptions returning %d options", optionlist.size());
     return optionlist;
 }
 
@@ -172,8 +194,11 @@ QList<QPointer<DSettingsOption> > DSettingsGroup::childOptions() const
  */
 QList<QPointer<DSettingsOption> > DSettingsGroup::options() const
 {
+    qCDebug(logSettings, "DSettingsGroup options called");
     Q_D(const DSettingsGroup);
-    return d->options.values();
+    QList<QPointer<DSettingsOption> > result = d->options.values();
+    qCDebug(logSettings, "DSettingsGroup options returning %d options", result.size());
+    return result;
 }
 
 /*!
@@ -187,8 +212,10 @@ QList<QPointer<DSettingsOption> > DSettingsGroup::options() const
  */
 QPointer<DSettingsGroup> DSettingsGroup::fromJson(const QString &prefixKey, const QJsonObject &group)
 {
+    qCDebug(logSettings, "DSettingsGroup fromJson called with prefixKey: %s", qPrintable(prefixKey));
     auto groupPtr = QPointer<DSettingsGroup>(new DSettingsGroup);
     groupPtr->parseJson(prefixKey, group);
+    qCDebug(logSettings, "DSettingsGroup fromJson created group successfully");
     return groupPtr;
 }
 
@@ -201,19 +228,25 @@ QPointer<DSettingsGroup> DSettingsGroup::fromJson(const QString &prefixKey, cons
  */
 void DSettingsGroup::parseJson(const QString &prefixKey, const QJsonObject &group)
 {
+    qCDebug(logSettings, "DSettingsGroup parseJson called with prefixKey: %s", qPrintable(prefixKey));
     Q_D(DSettingsGroup);
     d->parseJson(prefixKey, group);
+    qCDebug(logSettings, "DSettingsGroup parseJson completed");
 }
 
 void DSettingsGroupPrivate::parseJson(const QString &prefixKey, const QJsonObject &group)
 {
+    qCDebug(logSettings, "DSettingsGroupPrivate parseJson called with prefixKey: %s", qPrintable(prefixKey));
     Q_Q(DSettingsGroup);
     key = group.value("key").toString();
     Q_ASSERT(!key.isEmpty());
     key = prefixKey.isEmpty() ? key : prefixKey + "." + key;
     name = group.value("name").toString();
     hide = group.value("hide").toBool();
+    qCDebug(logSettings, "DSettingsGroupPrivate parseJson key: %s, name: %s, hide: %s", 
+            qPrintable(key), qPrintable(name), hide ? "true" : "false");
 
+    qCDebug(logSettings, "DSettingsGroupPrivate parsing options");
     for (auto optionJson :  group.value("options").toArray()) {
         auto optionObject = optionJson.toObject();
         auto option = DSettingsOption::fromJson(key, optionObject);
@@ -221,8 +254,10 @@ void DSettingsGroupPrivate::parseJson(const QString &prefixKey, const QJsonObjec
         options.insert(option->key(), option);
         childOptions.insert(option->key(), option);
         childOptionKeys << option->key();
+        qCDebug(logSettings, "DSettingsGroupPrivate added option: %s", qPrintable(option->key()));
     }
 
+    qCDebug(logSettings, "DSettingsGroupPrivate parsing subgroups");
     auto subGroups = group.value("groups").toArray();
     for (auto subGroup : subGroups) {
         auto child = DSettingsGroup::fromJson(key, subGroup.toObject());
@@ -230,12 +265,16 @@ void DSettingsGroupPrivate::parseJson(const QString &prefixKey, const QJsonObjec
         child->setParentGroup(q);
         childGroups.insert(child->key(), child);
         childGroupKeys << child->key();
+        qCDebug(logSettings, "DSettingsGroupPrivate added subgroup: %s", qPrintable(child->key()));
 
         for (auto option : child->options()) {
             options.insert(option->key(), option);
+            qCDebug(logSettings, "DSettingsGroupPrivate added option from subgroup: %s", qPrintable(option->key()));
         }
     }
 
+    qCDebug(logSettings, "DSettingsGroupPrivate parseJson completed, total options: %d, total subgroups: %d", 
+            options.size(), childGroups.size());
 }
 
 DCORE_END_NAMESPACE

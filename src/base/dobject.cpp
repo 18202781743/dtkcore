@@ -5,17 +5,21 @@
 #include "dobject.h"
 #include "base/private/dobject_p.h"
 
+#include <QLoggingCategory>
+
 DCORE_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(logBase, "dtk.core.base")
 
 DObjectPrivate::DObjectPrivate(DObject *qq)
     : q_ptr(qq)
 {
-
+    qCDebug(logBase, "DObjectPrivate constructor called for object: %p", qq);
 }
 
 DObjectPrivate::~DObjectPrivate()
 {
-
+    qCDebug(logBase, "DObjectPrivate destructor called");
 }
 
 /*!
@@ -98,7 +102,7 @@ DObjectPrivate::~DObjectPrivate()
  */
 DObject::DObject(DObject * /*parent = nullptr*/)
 {
-
+    qCDebug(logBase, "DObject constructor called (no parent)");
 }
 
 /*!
@@ -108,12 +112,12 @@ DObject::DObject(DObject * /*parent = nullptr*/)
 DObject::DObject(DObjectPrivate &dd, DObject * /*parent = nullptr*/):
     d_d_ptr(&dd)
 {
-
+    qCDebug(logBase, "DObject constructor called with private object: %p", &dd);
 }
 
 DObject::~DObject()
 {
-
+    qCDebug(logBase, "DObject destructor called");
 }
 
 /*!

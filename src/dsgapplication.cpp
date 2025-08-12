@@ -41,6 +41,7 @@ static void dbusMessageDeleter(DBusMessage *msg) {
 // D-Bus utility functions using libdbus-1
 static bool checkDBusServiceActivatable(const QString &service)
 {
+    qCDebug(dsgApp) << "Checking if service is activatable:" << service;
     auto error = std::unique_ptr<DBusError, void(*)(DBusError*)>(new DBusError, dbusErrorDeleter);
     dbus_error_init(error.get());
 
@@ -98,8 +99,11 @@ static bool checkDBusServiceActivatable(const QString &service)
     }
 
     if (!hasOwner) {
+        qCDebug(dsgApp) << "Service has no owner";
         return false;
     }
+
+    qCDebug(dsgApp) << "Service has owner, checking if activatable";
 
     // Check if service is activatable
     DBusMessage *msg2 = dbus_message_new_method_call(
@@ -123,6 +127,7 @@ static bool checkDBusServiceActivatable(const QString &service)
     }
 
     if (!reply2) {
+        qCWarning(dsgApp) << "No reply received from ListActivatableNames";
         return false;
     }
     auto reply2Guard = std::unique_ptr<DBusMessage, void(*)(DBusMessage*)>(reply2, dbusMessageDeleter);
@@ -131,6 +136,7 @@ static bool checkDBusServiceActivatable(const QString &service)
     dbus_message_iter_init(reply2, &iter);
 
     if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY) {
+        qCWarning(dsgApp) << "Invalid reply format from ListActivatableNames";
         return false;
     }
 
@@ -142,16 +148,19 @@ static bool checkDBusServiceActivatable(const QString &service)
         dbus_message_iter_get_basic(&array_iter, &name);
         if (service == QString::fromUtf8(name)) {
             found = true;
+            qCDebug(dsgApp) << "Service found in activatable names list";
             break;
         }
         dbus_message_iter_next(&array_iter);
     }
 
+    qCDebug(dsgApp) << "Service activatable check result:" << found;
     return found;
 }
 
 static QByteArray callDBusIdentifyMethod(const QString &service, const QString &path, const QString &interface, int pidfd)
 {
+    qCDebug(dsgApp) << "Calling DBus Identify method for service:" << service << "path:" << path << "interface:" << interface << "pidfd:" << pidfd;
     auto error = std::unique_ptr<DBusError, void(*)(DBusError*)>(new DBusError, dbusErrorDeleter);
     dbus_error_init(error.get());
 
@@ -209,62 +218,88 @@ static QByteArray callDBusIdentifyMethod(const QString &service, const QString &
     }
 
     QByteArray appId = QByteArray(result);
-    qCInfo(dsgApp) << "AppId is fetched from AM, and value is " << appId;
+    qCInfo(dsgApp) << "AppId is fetched from AM, and value is" << appId;
 
     return appId;
 }
 
 static inline QByteArray getSelfAppId() {
+    qCDebug(dsgApp) << "Getting self app ID from environment";
     // The env is set by the application starter(eg, org.desktopspec.ApplicationManager service)
     QByteArray selfId = qgetenv("DSG_APP_ID");
-    if (!selfId.isEmpty())
+    if (!selfId.isEmpty()) {
+        qCDebug(dsgApp) << "Found self app ID from environment:" << selfId;
         return selfId;
+    }
+    qCDebug(dsgApp) << "No self app ID in environment, getting from process ID";
     return DSGApplication::getId(QCoreApplication::applicationPid());
 }
 
 static bool isServiceActivatable(const QString &service)
 {
-    return checkDBusServiceActivatable(service);
+    qCDebug(dsgApp) << "Checking if service is activatable:" << service;
+    auto result = checkDBusServiceActivatable(service);
+    qCDebug(dsgApp) << "Service activatable check result:" << result;
+    return result;
 }
 
 // Format appId to valid.
 static QByteArray formatAppId(const QByteArray &appId)
 {
+    qCDebug(dsgApp) << "Formatting app ID:" << appId;
     static const QRegularExpression regex("[^\\w\\-\\.]");
     QString format(appId);
     format.replace(QDir::separator(), ".");
+    qCDebug(dsgApp) << "After replacing separators:" << format;
     format = format.replace(regex, QStringLiteral("-"));
+    qCDebug(dsgApp) << "After regex replacement:" << format;
     const QString InvalidPrefix{"."};
-    if (format.startsWith(InvalidPrefix))
+    if (format.startsWith(InvalidPrefix)) {
+        qCDebug(dsgApp) << "Removing invalid prefix from app ID";
         format = format.mid(InvalidPrefix.size());
-    return format.toLocal8Bit();
+        qCDebug(dsgApp) << "After removing prefix:" << format;
+    }
+    QByteArray result = format.toLocal8Bit();
+    qCDebug(dsgApp) << "Formatted app ID:" << result;
+    return result;
 }
 
 QByteArray DSGApplication::id()
 {
+    qCDebug(dsgApp) << "Getting application ID";
     static QByteArray selfId = getSelfAppId();
-    if (!selfId.isEmpty())
+    if (!selfId.isEmpty()) {
+        qCDebug(dsgApp) << "Using cached self ID:" << selfId;
         return selfId;
+    }
     QByteArray result = selfId;
     if (!qEnvironmentVariableIsSet("DTK_DISABLED_FALLBACK_APPID")) {
+        qCDebug(dsgApp) << "Fallback app ID not disabled, trying fallback methods";
         result = QCoreApplication::applicationName().toLocal8Bit();
         if (result.isEmpty()) {
+            qCDebug(dsgApp) << "Application name is empty, trying /proc/self/cmdline";
             QFile file("/proc/self/cmdline");
-            if (file.open(QIODevice::ReadOnly))
+            if (file.open(QIODevice::ReadOnly)) {
                 result = file.readLine();
+                qCDebug(dsgApp) << "Read from /proc/self/cmdline:" << result;
+            }
         }
         if (result.isEmpty()) {
+            qCDebug(dsgApp) << "Still empty, trying /proc/self/exe symlink";
             const QFileInfo file(QFile::symLinkTarget("/proc/self/exe"));
-            if (file.exists())
+            if (file.exists()) {
                 result = file.absoluteFilePath().toLocal8Bit();
+                qCDebug(dsgApp) << "Read from /proc/self/exe:" << result;
+            }
         }
         if (!result.isEmpty()) {
             result = formatAppId(result);
-            qCDebug(dsgApp) << "The applicatiion ID is fallback to " << result;
+            qCDebug(dsgApp) << "The application ID is fallback to" << result;
         }
     }
-    if (result.isEmpty())
+    if (result.isEmpty()) {
         qCWarning(dsgApp) << "The application ID is empty.";
+    }
 
     return result;
 }
@@ -283,6 +318,7 @@ QByteArray DSGApplication::id()
  */
 QByteArray DSGApplication::getId(qint64 pid)
 {
+    qCDebug(dsgApp, "Getting application ID for PID: %lld", pid);
     if (!isServiceActivatable("org.desktopspec.ApplicationManager1")) {
         qCInfo(dsgApp) << "Can't getId from AM for the " << pid << ", because AM is unavailable.";
         return QByteArray();
@@ -294,13 +330,14 @@ QByteArray DSGApplication::getId(qint64 pid)
         return QByteArray();
     }
 
+    qCDebug(dsgApp, "Successfully opened pidfd: %d", pidfd);
     QByteArray appId = callDBusIdentifyMethod("org.desktopspec.ApplicationManager1",
                                               "/org/desktopspec/ApplicationManager1",
                                               "org.desktopspec.ApplicationManager1",
                                               pidfd);
-    // see QDBusUnixFileDescriptor: The original file descriptor is not touched and must be closed by the user.
-    close(pidfd);
 
+    close(pidfd);
+    qCDebug(dsgApp, "Application ID for PID %lld: %s", pid, appId.constData());
     return appId;
 }
 

@@ -57,7 +57,7 @@ public:
     {
     Q_UNUSED(qq)
 #endif
-
+        qCDebug(logDF) << "DDciFilePrivate created";
     }
     ~DDciFilePrivate();
 
@@ -76,10 +76,12 @@ public:
         QByteArray data; // for file
 
         ~Node() {
+            qCDebug(logDF) << "Node destroyed:" << name;
             qDeleteAll(children);
         }
 
         QString path() const {
+            qCDebug(logDF) << "Getting path for node:" << name;
             QString p = name;
             Node *current = parent;
             while (current) {
@@ -87,14 +89,18 @@ public:
                 current = current->parent;
             }
 
+            qCDebug(logDF) << "Node path:" << p;
             return p;
         }
 
         QString linkPath() const {
+            qCDebug(logDF) << "Getting link path for node:" << name;
             const QString &path = QString::fromUtf8(data);
             QStringView pathView{path};
-            if (pathView.startsWith('/'))
+            if (pathView.startsWith('/')) {
+                qCDebug(logDF) << "Link path is absolute:" << path;
                 return path;
+            }
             // 转为绝对路径
             auto pNode = parent;
             int pathStart = 0;
@@ -102,8 +108,10 @@ public:
                 if (pathView.mid(pathStart, 3) == QLatin1String("../")) {
                     pathStart += 3;
                     pNode = pNode->parent;
-                    if (!pNode)
+                    if (!pNode) {
+                        qCWarning(logDF) << "Invalid link path:" << path;
                         return QString();
+                    }
                 } else if (pathView.mid(pathStart, 2) == QLatin1String("./")) {
                     pathStart += 2;
                 } else {
@@ -111,7 +119,9 @@ public:
                 }
             }
             Q_ASSERT(pNode);
-            return pNode->path() + QLatin1Char('/') + path.mid(pathStart);
+            auto result = pNode->path() + QLatin1Char('/') + path.mid(pathStart);
+            qCDebug(logDF) << "Resolved link path:" << result;
+            return result;
         }
     };
 
@@ -138,20 +148,22 @@ public:
 
 DDciFilePrivate::~DDciFilePrivate()
 {
-
+    qCDebug(logDF) << "DDciFilePrivate destroyed";
 }
 
 void DDciFilePrivate::setErrorString(const QString &message)
 {
-    qCDebug(logDF, "%s", qPrintable(message));
+    qCDebug(logDF) << "Setting error string:" << message;
     errorMessage = message;
 }
 
 void DDciFilePrivate::load(const QString &fileName)
 {
+    qCDebug(logDF) << "Loading DCI file from:" << fileName;
     QFile file(fileName);
 
     if (!file.open(QIODevice::ReadOnly)) {
+        qCWarning(logDF) << "Failed to open file:" << file.errorString();
         setErrorString(file.errorString());
         return;
     }
@@ -161,16 +173,21 @@ void DDciFilePrivate::load(const QString &fileName)
 
 void DDciFilePrivate::load(const QByteArray &data)
 {
+    qCDebug(logDF) << "Loading DCI file from data, size:" << data.size();
     // check magic
     if (!data.startsWith("DCI")) {
+        auto actualValue = QString::fromLatin1(data.left(3));
+        qCWarning(logDF) << "Invalid magic value:" << actualValue;
         setErrorString(QString("Expect value is \"DCI\", "
                                "but actually value is \"%1\"")
-                       .arg(QString::fromLatin1(data.left(3))));
+                       .arg(actualValue));
         return;
     }
 
     qint8 version = data.at(MAGIC_SIZE);
+    qCDebug(logDF) << "DCI file version:" << version;
     if (version != 1) {
+        qCWarning(logDF) << "Unsupported version:" << version;
         setErrorString(QString("Not supported version: %1").arg(version));
         return;
     }
@@ -181,7 +198,9 @@ void DDciFilePrivate::load(const QByteArray &data)
     fileCountData[3] = 0;
     int fileCount = qFromLittleEndian<qint32>(fileCountData);
 
+    qCDebug(logDF) << "File count:" << fileCount;
     if (fileCount < 0) {
+        qCWarning(logDF) << "Invalid file count:" << fileCount;
         setErrorString(QString("Invalid file count: %1").arg(fileCount));
         return;
     }
@@ -195,6 +214,7 @@ void DDciFilePrivate::load(const QByteArray &data)
 
     if (!loadDirectory(root, data, offset, data.size() - 1, pathToNode)
             || fileCount != root->children.count()) {
+        qCWarning(logDF) << "Failed to load directory or file count mismatch";
         delete root;
         return;
     }
@@ -205,6 +225,7 @@ void DDciFilePrivate::load(const QByteArray &data)
     this->pathToNode["/"] = root;
     // Node 中保存的文件数据仅是此数据的引用，因此要确保此数据一直存在
     this->rawData = data;
+    qCDebug(logDF) << "DCI file loaded successfully";
 }
 
 qint64 DDciFilePrivate::writeMetaDataForNode(QIODevice *device, DDciFilePrivate::Node *node, qint64 dataSize) const
@@ -228,51 +249,62 @@ qint64 DDciFilePrivate::writeMetaDataForNode(QIODevice *device, DDciFilePrivate:
 
 qint64 DDciFilePrivate::writeDataForNode(QIODevice *device, DDciFilePrivate::Node *node) const
 {
+    qCDebug(logDF) << "Writing data for node:" << node->name << "type:" << node->type;
     if (node->type == FILE_TYPE_FILE
             ||  node->type == FILE_TYPE_SYMLINK) {
-        return device->write(node->data);
+        auto writtenSize = device->write(node->data);
+        qCDebug(logDF) << "Written file/symlink data, size:" << writtenSize;
+        return writtenSize;
     } else if (node->type == FILE_TYPE_DIR) {
         qint64 dataSize = 0;
         for (Node *child : node->children) {
             dataSize += writeNode(device, child);
         }
+        qCDebug(logDF) << "Written directory data, total size:" << dataSize;
         return dataSize;
     }
 
+    qCDebug(logDF) << "Unknown node type, returning 0";
     return 0;
 }
 
 qint64 DDciFilePrivate::writeNode(QIODevice *device, DDciFilePrivate::Node *node) const
 {
+    qCDebug(logDF) << "Writing node:" << node->name;
     const qint64 metaDataPos = device->pos();
     device->seek(metaDataPos + FILE_META_SIZE);
     const qint64 dataSize = writeDataForNode(device, node);
     device->seek(metaDataPos);
     const qint64 metaDataSize = writeMetaDataForNode(device, node, dataSize);
     device->seek(device->pos() + dataSize);
-    return metaDataSize + dataSize;
+    auto totalSize = metaDataSize + dataSize;
+    qCDebug(logDF) << "Node written, total size:" << totalSize;
+    return totalSize;
 }
 
 DDciFilePrivate::Node *DDciFilePrivate::mkNode(const QString &filePath)
 {
-    qCDebug(logDF, "Request create a node");
+    qCDebug(logDF) << "Creating node for path:" << filePath;
 
     if (pathToNode.contains(filePath)) {
+        qCWarning(logDF) << "Node already exists:" << filePath;
         setErrorString(QString("The \"%1\" is existed").arg(filePath));
         return nullptr;
     }
 
     const QFileInfo info(filePath);
-    qCDebug(logDF, "The parent directory is \"%s\"", qPrintable(info.path()));
+    qCDebug(logDF) << "Parent directory:" << info.path();
 
     if (Node *parentNode = pathToNode.value(info.path())) {
         if (parentNode->type != FILE_TYPE_DIR) {
+            qCWarning(logDF) << "Parent is not a directory:" << info.path();
             setErrorString(QString("The \"%1\" is not a directory").arg(info.path()));
             return nullptr;
         }
 
         // 检查文件名长度，避免溢出
         if (info.fileName().toUtf8().size() > FILE_NAME_SIZE - 1) {
+            qCWarning(logDF) << "File name too long:" << info.fileName();
             setErrorString(QString("The file name size must less then %1 bytes").arg(FILE_NAME_SIZE));
             return nullptr;
         }
@@ -285,8 +317,10 @@ DDciFilePrivate::Node *DDciFilePrivate::mkNode(const QString &filePath)
         parentNode->children.insert(index, newNode);
         pathToNode[newNode->path()] = newNode;
 
+        qCDebug(logDF) << "Node created successfully:" << newNode->path();
         return newNode;
     } else {
+        qCWarning(logDF) << "Parent directory does not exist:" << info.path();
         setErrorString("The parent directory is not exists");
         return nullptr;
     }
@@ -294,6 +328,7 @@ DDciFilePrivate::Node *DDciFilePrivate::mkNode(const QString &filePath)
 
 void DDciFilePrivate::removeNode(DDciFilePrivate::Node *node)
 {
+    qCDebug(logDF) << "Removing node:" << node->path();
     Q_ASSERT(node != root.data());
 
     node->parent->children.removeOne(node);
@@ -307,10 +342,12 @@ void DDciFilePrivate::removeNode(DDciFilePrivate::Node *node)
     }
 
     delete node;
+    qCDebug(logDF) << "Node removed successfully";
 }
 
 void DDciFilePrivate::copyNode(const DDciFilePrivate::Node *from, DDciFilePrivate::Node *to)
 {
+    qCDebug(logDF) << "Copying node from:" << from->path() << "to:" << to->path();
     QList<QPair<const Node*, Node*>> copyPendingList;
     copyPendingList << qMakePair(from, to);
 

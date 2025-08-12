@@ -4,18 +4,21 @@
 
 #include "dfilesystemwatcher.h"
 #include "private/dfilesystemwatcher_dummy_p.h"
+#include <QLoggingCategory>
 
 DCORE_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(logFilesystem)
 
 DFileSystemWatcherPrivate::DFileSystemWatcherPrivate(int fd, DFileSystemWatcher *qq)
     : DObjectPrivate(qq)
 {
-
+    qCDebug(logFilesystem, "DFileSystemWatcherPrivate created with fd: %d", fd);
 }
 
 DFileSystemWatcherPrivate::~DFileSystemWatcherPrivate()
 {
-
+    qCDebug(logFilesystem, "DFileSystemWatcherPrivate destroyed");
 }
 
 /*!
@@ -72,7 +75,7 @@ DFileSystemWatcher::DFileSystemWatcher(QObject *parent)
     : QObject(parent)
     , DObject()
 {
-
+    qCDebug(logFilesystem, "DFileSystemWatcher created with parent");
 }
 
 /*!
@@ -83,6 +86,7 @@ DFileSystemWatcher::DFileSystemWatcher(QObject *parent)
 DFileSystemWatcher::DFileSystemWatcher(const QStringList &paths, QObject *parent)
     : DFileSystemWatcher(parent)
 {
+    qCDebug(logFilesystem, "DFileSystemWatcher created with %d paths", paths.size());
     addPaths(paths);
 }
 
@@ -91,7 +95,9 @@ DFileSystemWatcher::DFileSystemWatcher(const QStringList &paths, QObject *parent
     Destroys the file system watcher.
 */
 DFileSystemWatcher::~DFileSystemWatcher()
-{ }
+{ 
+    qCDebug(logFilesystem, "DFileSystemWatcher destroyed");
+}
 
 /*!
 @~english
@@ -119,6 +125,8 @@ DFileSystemWatcher::~DFileSystemWatcher()
 */
 bool DFileSystemWatcher::addPath(const QString &path)
 {
+    qCDebug(logFilesystem, "addPath called for: %s", qPrintable(path));
+    qCWarning(logFilesystem, "Dummy implementation - addPath always returns false");
     return false;
 }
 
@@ -148,6 +156,8 @@ bool DFileSystemWatcher::addPath(const QString &path)
 */
 QStringList DFileSystemWatcher::addPaths(const QStringList &paths)
 {
+    qCDebug(logFilesystem, "addPaths called with %d paths", paths.size());
+    qCWarning(logFilesystem, "Dummy implementation - addPaths always returns empty list");
     return QStringList();
 }
 
@@ -164,6 +174,8 @@ QStringList DFileSystemWatcher::addPaths(const QStringList &paths)
 */
 bool DFileSystemWatcher::removePath(const QString &path)
 {
+    qCDebug(logFilesystem, "removePath called for: %s", qPrintable(path));
+    qCWarning(logFilesystem, "Dummy implementation - removePath always returns false");
     return false;
 }
 
@@ -181,6 +193,8 @@ bool DFileSystemWatcher::removePath(const QString &path)
 */
 QStringList DFileSystemWatcher::removePaths(const QStringList &paths)
 {
+    qCDebug(logFilesystem, "removePaths called with %d paths", paths.size());
+    qCWarning(logFilesystem, "Dummy implementation - removePaths always returns empty list");
     return QStringList();
 }
 
@@ -228,11 +242,13 @@ QStringList DFileSystemWatcher::removePaths(const QStringList &paths)
 
 QStringList DFileSystemWatcher::directories() const
 {
+    qCDebug(logFilesystem, "directories() called");
     return QStringList();
 }
 
 QStringList DFileSystemWatcher::files() const
 {
+    qCDebug(logFilesystem, "files() called");
     return QStringList();
 }
 

@@ -10,8 +10,15 @@
 #include <QTemporaryFile>
 #include <QDebug>
 #include <QSaveFile>
+#include <QLoggingCategory>
 
 DCORE_BEGIN_NAMESPACE
+
+#ifdef QT_DEBUG
+Q_LOGGING_CATEGORY(logDesktopEntry, "dtk.core.desktopentry")
+#else
+Q_LOGGING_CATEGORY(logDesktopEntry, "dtk.core.desktopentry", QtInfoMsg)
+#endif
 
 enum { Space = 0x1, Special = 0x2 };
 
@@ -41,6 +48,7 @@ static const char charTraits[256] = {
 
 bool readLineFromData(const QByteArray &data, int &dataPos, int &lineStart, int &lineLen, int &equalsPos)
 {
+    qCDebug(logDesktopEntry) << "Reading line from data, dataPos:" << dataPos;
     int dataLen = data.length();
 
     equalsPos = -1;
@@ -58,8 +66,9 @@ bool readLineFromData(const QByteArray &data, int &dataPos, int &lineStart, int 
 
         char ch = data.at(i++);
         if (ch == '=') {
-            if (equalsPos == -1)
+            if (equalsPos == -1) {
                 equalsPos = i - 1;
+            }
         } else if (ch == '\n' || ch == '\r') {
             if (i == lineStart + 1) {
                 ++lineStart;
@@ -98,6 +107,7 @@ bool readLineFromData(const QByteArray &data, int &dataPos, int &lineStart, int 
 break_out_of_outer_loop:
     dataPos = i;
     lineLen = i - lineStart;
+    qCDebug(logDesktopEntry) << "Line read completed, lineLen: " << lineLen;
     return lineLen > 0;
 }
 
@@ -150,6 +160,8 @@ public:
     }
 
     QByteArray sectionData() const {
+        qCDebug(logDesktopEntry, "Getting section data for: %s", qPrintable(name));
+        
         if (unparsedDatas.isEmpty()) {
             // construct data and return
             QByteArray data;
@@ -161,6 +173,7 @@ public:
                 data.append(QString("%1=%2\n").arg(i.key(), i.value()).toLocal8Bit());
             }
 
+            qCDebug(logDesktopEntry) << "Section data: " << data;
             return data;
         } else {
             return unparsedDatas;
@@ -168,7 +181,12 @@ public:
     }
 
     bool ensureSectionDataParsed() {
-        if (unparsedDatas.isEmpty()) return true;
+        qCDebug(logDesktopEntry, "Parsing section data for: %s", qPrintable(name));
+        
+        if (unparsedDatas.isEmpty()) {
+            qCDebug(logDesktopEntry) << "Section data is empty, returning true";
+            return true;
+        }
 
         valuesMap.clear();
 
@@ -179,7 +197,9 @@ public:
         int equalsPos;
 
         while(readLineFromData(unparsedDatas, dataPos, lineStart, lineLen, equalsPos)) {
-            if (unparsedDatas.at(lineStart) == '[') continue; // section name already parsed
+            if (unparsedDatas.at(lineStart) == '[') {
+                continue; // section name already parsed
+            }
 
             if (equalsPos != -1) {
                 QString key = unparsedDatas.mid(lineStart, equalsPos - lineStart).trimmed();
@@ -190,21 +210,28 @@ public:
         }
 
         unparsedDatas.clear();
+        qCDebug(logDesktopEntry, "Parsed %d key-value pairs", valuesMap.size());
 
         return true;
     }
 
     bool contains(const QString &key) const {
+        qCDebug(logDesktopEntry, "Checking if section contains key: %s", qPrintable(key));
+        
         const_cast<DDesktopEntrySection*>(this)->ensureSectionDataParsed();
         return valuesMap.contains(key);
     }
 
     QStringList allKeys() const {
+        qCDebug(logDesktopEntry, "Getting all keys for section: %s", qPrintable(name));
+        
         const_cast<DDesktopEntrySection*>(this)->ensureSectionDataParsed();
         return valuesMap.keys();
     }
 
     QString get(const QString &key, QString &defaultValue) {
+        qCDebug(logDesktopEntry, "Getting value for key: %s", qPrintable(key));
+        
         if (this->contains(key)) {
             return valuesMap[key];
         } else {
@@ -213,6 +240,8 @@ public:
     }
 
     bool set(const QString &key, const QString &value) {
+        qCDebug(logDesktopEntry, "Setting key: %s = %s", qPrintable(key), qPrintable(value));
+        
         if (this->contains(key)) {
             valuesMap.remove(key);
         }
@@ -221,11 +250,9 @@ public:
     }
 
     bool remove(const QString &key) {
-        if (this->contains(key)) {
-            valuesMap.remove(key);
-            return true;
-        }
-        return false;
+        qCDebug(logDesktopEntry, "Removing key: %s", qPrintable(key));
+        
+        return valuesMap.remove(key) > 0;
     }
 };
 
@@ -266,67 +293,86 @@ private:
 DDesktopEntryPrivate::DDesktopEntryPrivate(const QString &filePath, DDesktopEntry *qq)
     : filePath(filePath), q_ptr(qq)
 {
+    qCDebug(logDesktopEntry) << "Creating DDesktopEntryPrivate for file:" << filePath;
     fuzzyLoad();
 }
 
 DDesktopEntryPrivate::~DDesktopEntryPrivate()
 {
-
+    qCDebug(logDesktopEntry) << "Destroying DDesktopEntryPrivate";
 }
 
 bool DDesktopEntryPrivate::isWritable() const
 {
+    qCDebug(logDesktopEntry) << "Checking if file is writable:" << filePath;
+    
     QFileInfo fileInfo(filePath);
 
 #ifndef QT_NO_TEMPORARYFILE
     if (fileInfo.exists()) {
 #endif
         QFile file(filePath);
-        return file.open(QFile::ReadWrite);
+        const bool writable = file.open(QFile::ReadWrite);
+        qCDebug(logDesktopEntry) << "File writable:" << writable;
+        return writable;
 #ifndef QT_NO_TEMPORARYFILE
     } else {
         // Create the directories to the file.
         QDir dir(fileInfo.absolutePath());
         if (!dir.exists()) {
-            if (!dir.mkpath(dir.absolutePath()))
+            if (!dir.mkpath(dir.absolutePath())) {
+                qCWarning(logDesktopEntry) << "Failed to create directory:" << dir.absolutePath();
                 return false;
+            }
         }
 
         // we use a temporary file to avoid race conditions
         QTemporaryFile file(filePath);
-        return file.open();
+        const bool writable = file.open();
+        qCDebug(logDesktopEntry) << "Temporary file writable:" << writable;
+        return writable;
     }
 #endif
 }
 
 bool DDesktopEntryPrivate::fuzzyLoad()
 {
+    qCDebug(logDesktopEntry) << "Loading desktop entry file:" << filePath;
     QFile file(filePath);
     QFileInfo fileInfo(filePath);
 
     if (fileInfo.exists() && !file.open(QFile::ReadOnly)) {
+        qCWarning(logDesktopEntry) << "File exists but cannot be opened for reading";
         setStatus(DDesktopEntry::AccessError);
         return false;
     }
 
     if (file.isReadable() && file.size() != 0) {
+        qCDebug(logDesktopEntry) << "Reading file content, size:" << file.size();
         bool ok = false;
         QByteArray data = file.readAll();
 
         ok = initSectionsFromData(data);
 
         if (!ok) {
+            qCWarning(logDesktopEntry) << "Failed to parse file data";
             setStatus(DDesktopEntry::FormatError);
             return false;
         }
-    }
 
-    setStatus(DDesktopEntry::NoError);
-    return true;
+        qCDebug(logDesktopEntry) << "File loaded successfully";
+        setStatus(DDesktopEntry::NoError);
+        return true;
+    } else {
+        qCDebug(logDesktopEntry) << "File is empty or not readable";
+        setStatus(DDesktopEntry::NoError);
+        return true;
+    }
 }
 
 bool DDesktopEntryPrivate::initSectionsFromData(const QByteArray &data)
 {
+    qCDebug(logDesktopEntry, "Initializing sections from data, size: %d", data.size());
     sectionsMap.clear();
 
     QString lastSectionName;
@@ -369,6 +415,7 @@ bool DDesktopEntryPrivate::initSectionsFromData(const QByteArray &data)
             }
             lastSectionName = sectionName;
             lastSectionStart = lineStart;
+            qCDebug(logDesktopEntry, "Found section: %s", qPrintable(QString::fromUtf8(sectionName)));
         }
     }
 
@@ -377,6 +424,7 @@ bool DDesktopEntryPrivate::initSectionsFromData(const QByteArray &data)
         commitSection(lastSectionName, lastSectionStart, lineStart - lastSectionStart, sectionIdx);
     }
 
+    qCDebug(logDesktopEntry, "Initialized %d sections", sectionsMap.size());
     return formatOk;
 }
 
@@ -384,6 +432,7 @@ bool DDesktopEntryPrivate::initSectionsFromData(const QByteArray &data)
 void DDesktopEntryPrivate::setStatus(const DDesktopEntry::Status &newStatus) const
 {
     if (newStatus == DDesktopEntry::NoError || this->status == DDesktopEntry::NoError) {
+        qCDebug(logDesktopEntry) << "Setting status: " << newStatus;
         this->status = newStatus;
     }
 }
@@ -396,60 +445,79 @@ bool DDesktopEntryPrivate::write(QIODevice &device) const
 
     for (const QString &key : sortedKeys) {
         qint64 ret = device.write(sectionsMap[key].sectionData());
-        if (ret == -1) return false;
+        if (ret == -1) {
+            qCWarning(logDesktopEntry) << "Failed to write section data";
+            return false;
+        }
     }
 
+    qCDebug(logDesktopEntry, "Write completed successfully");
     return true;
 }
 
 int DDesktopEntryPrivate::sectionPos(const QString &sectionName) const
 {
+    qCDebug(logDesktopEntry, "Getting section position for: %s", qPrintable(sectionName));
+    
     if (sectionsMap.contains(sectionName)) {
         return sectionsMap[sectionName].sectionPos;
     }
-
+    
+    qCWarning(logDesktopEntry) << "Section not found: " << sectionName;
     return -1;
 }
 
 bool DDesktopEntryPrivate::contains(const QString &sectionName, const QString &key) const
 {
-    if (sectionName.isNull() || key.isNull()) {
+    qCDebug(logDesktopEntry, "Checking if section contains key: %s.%s", qPrintable(sectionName), qPrintable(key));
+    
+    if (!sectionsMap.contains(sectionName)) {
+        qCDebug(logDesktopEntry) << "Section not found: " << sectionName;
         return false;
     }
-
+    
     if (sectionsMap.contains(sectionName)) {
         return sectionsMap[sectionName].contains(key);
     }
+
+    qCWarning(logDesktopEntry) << "Section not found: " << sectionName;
 
     return false;
 }
 
 QStringList DDesktopEntryPrivate::keys(const QString &sectionName) const
 {
+    qCDebug(logDesktopEntry, "Getting keys for section: %s", qPrintable(sectionName));
+    
     if (sectionName.isNull()) {
         return {};
     }
-
+    
     if (sectionsMap.contains(sectionName)) {
         return sectionsMap[sectionName].allKeys();
     }
-
+    
+    qCWarning(logDesktopEntry) << "Section not found: " << sectionName;
     return {};
 }
 
 // return true if we found the value, and set the value to *value
 bool DDesktopEntryPrivate::get(const QString &sectionName, const QString &key, QString *value)
 {
-    if (!this->contains(sectionName, key)) {
+    qCDebug(logDesktopEntry, "Getting value for: %s.%s", qPrintable(sectionName), qPrintable(key));
+    
+    if (!sectionsMap.contains(sectionName)) {
+        qCWarning(logDesktopEntry) << "Section not found: " << sectionName;
         return false;
     }
-
+    
     if (sectionsMap.contains(sectionName)) {
         QString &&result = sectionsMap[sectionName].get(key, *value);
         *value = result;
         return true;
     }
 
+    qCWarning(logDesktopEntry) << "Section not found: " << sectionName;
     return false;
 }
 
@@ -457,6 +525,7 @@ bool DDesktopEntryPrivate::set(const QString &sectionName, const QString &key, c
 {
     if (sectionsMap.contains(sectionName)) {
         bool result = sectionsMap[sectionName].set(key, value);
+        qCDebug(logDesktopEntry) << "Set value for: " << sectionName << "." << key << "to" << value;
         return result;
     } else {
         // create new section.
@@ -464,9 +533,11 @@ bool DDesktopEntryPrivate::set(const QString &sectionName, const QString &key, c
         newSection.name = sectionName;
         newSection.set(key, value);
         sectionsMap[sectionName] = newSection;
+        qCDebug(logDesktopEntry) << "Created new section: " << sectionName;
         return true;
     }
 
+    qCWarning(logDesktopEntry) << "Section not found: " << sectionName;
     return false;
 }
 
@@ -475,6 +546,7 @@ bool DDesktopEntryPrivate::remove(const QString &sectionName, const QString &key
     if (this->contains(sectionName, key)) {
         return sectionsMap[sectionName].remove(key);
     }
+    qCWarning(logDesktopEntry) << "Key not found: " << sectionName << "." << key;
     return false;
 }
 
@@ -494,12 +566,12 @@ bool DDesktopEntryPrivate::remove(const QString &sectionName, const QString &key
 DDesktopEntry::DDesktopEntry(const QString &filePath) noexcept
     : d_ptr(new DDesktopEntryPrivate(filePath, this))
 {
-
+    qCDebug(logDesktopEntry) << "DDesktopEntry::DDesktopEntry() called for file: " << filePath;
 }
 
 DDesktopEntry::~DDesktopEntry()
 {
-
+    qCDebug(logDesktopEntry) << "DDesktopEntry::~DDesktopEntry() called";
 }
 
 /*!
@@ -509,6 +581,7 @@ DDesktopEntry::~DDesktopEntry()
  */
 bool DDesktopEntry::save() const
 {
+    qCDebug(logDesktopEntry) << "DDesktopEntry::save() called";
     Q_D(const DDesktopEntry);
 
     // write to file.
@@ -525,6 +598,7 @@ bool DDesktopEntry::save() const
 #endif
         if (!sf.open(QIODevice::WriteOnly)) {
             d->setStatus(DDesktopEntry::AccessError);
+            qCWarning(logDesktopEntry) << "DDesktopEntry::save() failed to open file";
             return false;
         }
 
@@ -543,9 +617,11 @@ bool DDesktopEntry::save() const
                                                                   | QFile::ReadGroup | QFile::ReadOther;
                 QFile(d->filePath).setPermissions(perms);
             }
+            qCDebug(logDesktopEntry) << "DDesktopEntry::save() success";
             return true;
         } else {
             d->setStatus(DDesktopEntry::AccessError);
+            qCWarning(logDesktopEntry) << "DDesktopEntry::save() failed";
             return false;
         }
     }
@@ -595,6 +671,7 @@ QStringList DDesktopEntry::keys(const QString &section) const
  */
 QStringList DDesktopEntry::allGroups(bool sorted) const
 {
+    qCDebug(logDesktopEntry) << "DDesktopEntry::allGroups() called with sorted: " << sorted;
     Q_D(const DDesktopEntry);
 
     if (!sorted) {
@@ -688,9 +765,11 @@ QString DDesktopEntry::ddeDisplayName() const
     QString deepinVendor = stringValue("X-Deepin-Vendor");
     QString genericNameStr = genericName();
     if (deepinVendor == QStringLiteral("deepin") && !genericNameStr.isEmpty()) {
+        qCDebug(logDesktopEntry) << "DDesktopEntry::ddeDisplayName() returning genericName: " << genericNameStr;
         return genericNameStr;
     }
 
+    qCDebug(logDesktopEntry) << "DDesktopEntry::ddeDisplayName() returning name: " << name();
     return name();
 }
 
@@ -835,6 +914,7 @@ QString DDesktopEntry::localizedValue(const QString &key, const QLocale &locale,
  */
 QStringList DDesktopEntry::stringListValue(const QString &key, const QString &section) const
 {
+    qCDebug(logDesktopEntry) << "DDesktopEntry::stringListValue() called with key: " << key << "and section: " << section;
     Q_D(const DDesktopEntry);
 
     QString value;
@@ -860,11 +940,13 @@ QStringList DDesktopEntry::stringListValue(const QString &key, const QString &se
         result << DDesktopEntry::unescape(oneStr, true);
     }
 
+    qCDebug(logDesktopEntry) << "DDesktopEntry::stringListValue() returning result: " << result;
     return result;
 }
 
 bool DDesktopEntry::setRawValue(const QString &value, const QString &key, const QString &section)
 {
+    qCDebug(logDesktopEntry) << "DDesktopEntry::setRawValue() called with value: " << value << "key: " << key << "section: " << section;
     Q_D(DDesktopEntry);
     if (key.isEmpty() || section.isEmpty()) {
         qWarning("DDesktopEntry::setRawValue: Empty key or section passed");
@@ -877,6 +959,7 @@ bool DDesktopEntry::setRawValue(const QString &value, const QString &key, const 
 
 bool DDesktopEntry::setStringValue(const QString &value, const QString &key, const QString &section)
 {
+    qCDebug(logDesktopEntry) << "DDesktopEntry::setStringValue() called with value: " << value << "key: " << key << "section: " << section;
     QString escapedValue = value;
     DDesktopEntry::escape(escapedValue);
     bool result = setRawValue(escapedValue, key, section);
@@ -885,6 +968,7 @@ bool DDesktopEntry::setStringValue(const QString &value, const QString &key, con
 
 bool DDesktopEntry::setLocalizedValue(const QString &value, const QString &localeKey, const QString &key, const QString &section)
 {
+    qCDebug(logDesktopEntry) << "DDesktopEntry::setLocalizedValue() called with value: " << value << "localeKey: " << localeKey << "key: " << key << "section: " << section;
     Q_D(DDesktopEntry);
     if (key.isEmpty() || section.isEmpty()) {
         qWarning("DDesktopEntry::setLocalizedValue: Empty key or section passed");
@@ -899,6 +983,7 @@ bool DDesktopEntry::setLocalizedValue(const QString &value, const QString &local
 
 bool DDesktopEntry::removeEntry(const QString &key, const QString &section)
 {
+    qCDebug(logDesktopEntry) << "DDesktopEntry::removeEntry() called with key: " << key << "section: " << section;
     Q_D(DDesktopEntry);
     if (key.isEmpty() || section.isEmpty()) {
         qWarning("DDesktopEntry::setLocalizedValue: Empty key or section passed");
@@ -915,6 +1000,7 @@ bool DDesktopEntry::removeEntry(const QString &key, const QString &section)
  ************************************************/
 QString &DDesktopEntry::escape(QString &str)
 {
+    qCDebug(logDesktopEntry) << "DDesktopEntry::escape() called with str: " << str;
     QHash<QChar,QChar> repl;
     repl.insert(QLatin1Char('\n'),  QLatin1Char('n'));
     repl.insert(QLatin1Char('\t'),  QLatin1Char('t'));
@@ -944,6 +1030,7 @@ is unambiguously represented with ("\\$").
  ************************************************/
 QString &DDesktopEntry::escapeExec(QString &str)
 {
+    qCDebug(logDesktopEntry) << "DDesktopEntry::escapeExec() called with str: " << str;
     QHash<QChar,QChar> repl;
     // The parseCombinedArgString() splits the string by the space symbols,
     // we temporarily replace them on the special characters.
@@ -969,6 +1056,7 @@ QString &DDesktopEntry::escapeExec(QString &str)
 */
 QString &DDesktopEntry::unescape(QString &str, bool unescapeSemicolons)
 {
+    qCDebug(logDesktopEntry) << "DDesktopEntry::unescape() called with str: " << str << "and unescapeSemicolons: " << unescapeSemicolons;
     QHash<QChar,QChar> repl;
     repl.insert(QLatin1Char('\\'), QLatin1Char('\\'));
     repl.insert(QLatin1Char('s'),  QLatin1Char(' '));
@@ -1055,6 +1143,7 @@ QString &DDesktopEntry::unescapeExec(QString &str)
 
 bool DDesktopEntry::setStatus(const DDesktopEntry::Status &status)
 {
+    qCDebug(logDesktopEntry) << "DDesktopEntry::setStatus() called with status: " << status;
     Q_D(DDesktopEntry);
     d->setStatus(status);
 

@@ -7,13 +7,18 @@
 #include <QDebug>
 #include <QMutex>
 #include <DConfig>
+#include <QLoggingCategory>
 
 DCORE_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(logSettings)
 
 class DSettingsDConfigBackendPrivate
 {
 public:
-    explicit DSettingsDConfigBackendPrivate(DSettingsDConfigBackend *parent) : q_ptr(parent) {}
+    explicit DSettingsDConfigBackendPrivate(DSettingsDConfigBackend *parent) : q_ptr(parent) {
+        qCDebug(logSettings, "DSettingsDConfigBackendPrivate created");
+    }
 
     DConfig       *dConfig   = nullptr;
     QMutex          writeLock;
@@ -39,14 +44,16 @@ public:
 DSettingsDConfigBackend::DSettingsDConfigBackend(const QString &name, const QString &subpath, QObject *parent) :
     DSettingsBackend(parent), d_ptr(new DSettingsDConfigBackendPrivate(this))
 {
+    qCDebug(logSettings, "DSettingsDConfigBackend created with name: %s, subpath: %s", qPrintable(name), qPrintable(subpath));
     Q_D(DSettingsDConfigBackend);
 
     d->dConfig = new DConfig(name, subpath, this);
+    qCDebug(logSettings, "DConfig created successfully");
 }
 
 DSettingsDConfigBackend::~DSettingsDConfigBackend()
 {
-
+    qCDebug(logSettings, "DSettingsDConfigBackend destroyed");
 }
 
 /*!
@@ -57,7 +64,9 @@ DSettingsDConfigBackend::~DSettingsDConfigBackend()
 QStringList DSettingsDConfigBackend::keys() const
 {
     Q_D(const DSettingsDConfigBackend);
-    return d->dConfig->keyList();
+    QStringList result = d->dConfig->keyList();
+    qCDebug(logSettings, "Getting keys, count: %d", result.size());
+    return result;
 }
 
 /*!
@@ -69,7 +78,9 @@ QStringList DSettingsDConfigBackend::keys() const
 QVariant DSettingsDConfigBackend::getOption(const QString &key) const
 {
     Q_D(const DSettingsDConfigBackend);
-    return d->dConfig->value(key);
+    QVariant result = d->dConfig->value(key);
+    qCDebug(logSettings, "Getting option: %s, value: %s", qPrintable(key), qPrintable(result.toString()));
+    return result;
 }
 
 /*!
@@ -81,6 +92,7 @@ QVariant DSettingsDConfigBackend::getOption(const QString &key) const
 void DSettingsDConfigBackend::doSetOption(const QString &key, const QVariant &value)
 {
     Q_D(DSettingsDConfigBackend);
+    qCDebug(logSettings, "Setting option: %s = %s", qPrintable(key), qPrintable(value.toString()));
     d->writeLock.lock();
     d->dConfig->setValue(key, value);
     d->writeLock.unlock();

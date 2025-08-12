@@ -33,7 +33,9 @@
 
 static inline bool inTest()
 {
-    return !QLatin1String(DSYSINFO_PREFIX).isEmpty();
+    auto result = !QLatin1String(DSYSINFO_PREFIX).isEmpty();
+    qCDebug(logSysInfo) << "inTest() called, result:" << result;
+    return result;
 }
 
 DCORE_BEGIN_NAMESPACE
@@ -47,7 +49,13 @@ Q_LOGGING_CATEGORY(logSysInfo, "dtk.dsysinfo", QtInfoMsg)
 class Q_DECL_HIDDEN DSysInfoPrivate
 {
 public:
-    DSysInfoPrivate();
+    DSysInfoPrivate() {
+        qCDebug(logSysInfo) << "DSysInfoPrivate created";
+    }
+
+    ~DSysInfoPrivate() {
+        qCDebug(logSysInfo) << "DSysInfoPrivate destructor called";
+    }
 
 #ifdef Q_OS_LINUX
     void ensureDeepinInfo();
@@ -84,6 +92,7 @@ public:
             , Y(0)
             , Z(0)
         {
+            qCDebug(logSysInfo) << "MinVersion created";
         }
 
         uint A, B, BC, C, D; // A-BC-D
@@ -92,6 +101,7 @@ public:
     };
     struct OSBuild {
         OSBuild():A(0), B(0), C(0), D(0), xyz(100){
+            qCDebug(logSysInfo) << "OSBuild created";
         }
         uint A, B, C, D, E, xyz; // ABCDE.xyz
     };
@@ -522,34 +532,62 @@ void DSysInfoPrivate::ensureComputerInfo()
 
 QMap<QString, QString> DSysInfoPrivate::parseInfoFile(QFile &file)
 {
+    qCDebug(logSysInfo) << "parseInfoFile called for file: " << file.fileName();
+    
     char buf[1024];
     qint64 lineLength = 0;
     QMap<QString, QString> map;
+    int lineCount = 0;
+    
     do {
         lineLength = file.readLine(buf, sizeof(buf));
         QString s(buf);
         if (s.contains(':')) {
             QStringList list = s.split(':');
             if (list.size() == 2) {
-                map.insert(list.first().trimmed(), list.back().trimmed());
+                const QString key = list.first().trimmed();
+                const QString value = list.back().trimmed();
+                map.insert(key, value);
+                qCDebug(logSysInfo) << "parseInfoFile parsed key-value: " << key << "=" << value;
+            } else {
+                qCDebug(logSysInfo) << "parseInfoFile skipped line with " << list.size() << " parts: " << s.trimmed();
             }
+        } else {
+            qCDebug(logSysInfo) << "parseInfoFile skipped line without colon: " << s.trimmed();
         }
+        lineCount++;
     } while (lineLength >= 0);
+    
+    qCDebug(logSysInfo) << "parseInfoFile completed, parsed " << lineCount << " lines, found " << map.size() << " key-value pairs";
     return map;
 }
 
 QMap<QString, QString> DSysInfoPrivate::parseInfoContent(const QString &content)
 {
+    qCDebug(logSysInfo) << "parseInfoContent called, content length: " << content.length();
+    
     QMap<QString, QString> map;
     QStringList lineContents = content.split("\n");
+    int parsedCount = 0;
+    
     for (auto lineContent : lineContents) {
         if (lineContent.contains(':')) {
             QStringList list = lineContent.split(':');
             if (list.size() == 2) {
-                map.insert(list.first().trimmed(), list.back().trimmed());
+                const QString key = list.first().trimmed();
+                const QString value = list.back().trimmed();
+                map.insert(key, value);
+                qCDebug(logSysInfo) << "parseInfoContent parsed key-value: " << key << "=" << value;
+                parsedCount++;
+            } else {
+                qCDebug(logSysInfo) << "parseInfoContent skipped line with " << list.size() << " parts: " << lineContent.trimmed();
             }
+        } else {
+            qCDebug(logSysInfo) << "parseInfoContent skipped line without colon: " << lineContent.trimmed();
         }
     }
+    
+    qCDebug(logSysInfo) << "parseInfoContent completed, processed " << lineContents.size() << " lines, found " << parsedCount << " key-value pairs";
     return map;
 }
 
@@ -1137,12 +1175,12 @@ qint64 DSysInfo::memoryInstalledSize()
         QJsonParseError error;
         auto doc = QJsonDocument::fromJson(lshwInfoJson, &error);
         if (error.error != QJsonParseError::NoError) {
-            qCWarning(logSysInfo(), "parse failed, expect json doc from lshw command");
+            qCWarning(logSysInfo()) << "parse failed, expect json doc from lshw command";
             return -1;
         }
 
         if (!doc.isArray()) {
-            qCWarning(logSysInfo(), "parse failed, expect array");
+            qCWarning(logSysInfo()) << "parse failed, expect array";
             return -1;
         }
 

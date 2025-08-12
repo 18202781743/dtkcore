@@ -3,11 +3,15 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 
 #include "dfileservices.h"
+#include <QLoggingCategory>
 
 DCORE_BEGIN_NAMESPACE
 
+Q_LOGGING_CATEGORY(logUtil, "dtk.core.util")
+
 static QStringList urls2uris(const QList<QUrl> &urls)
 {
+    qCDebug(logUtil) << "Converting" << urls.size() << "URLs to URIs";
     QStringList list;
 
     list.reserve(urls.size());
@@ -21,6 +25,7 @@ static QStringList urls2uris(const QList<QUrl> &urls)
 
 static QList<QUrl> path2urls(const QList<QString> &paths)
 {
+    qCDebug(logUtil) << "Converting" << paths.size() << "paths to URLs";
     QList<QUrl> list;
 
     list.reserve(paths.size());
@@ -34,6 +39,8 @@ static QList<QUrl> path2urls(const QList<QString> &paths)
 
 bool DFileServices::showFolder(QString localFilePath, const QString &startupId)
 {
+    qCDebug(logUtil) << "showFolder called with path:" << localFilePath << "startupId:" << startupId;
+    qCWarning(logUtil, "Dummy implementation - showFolder always returns false");
     Q_UNUSED(localFilePath);
     Q_UNUSED(startupId);
     return false;
@@ -41,6 +48,8 @@ bool DFileServices::showFolder(QString localFilePath, const QString &startupId)
 
 bool DFileServices::showFolders(const QList<QString> localFilePaths, const QString &startupId)
 {
+    qCDebug(logUtil) << "showFolders called with" << localFilePaths.size() << "paths, startupId:" << startupId;
+    qCWarning(logUtil, "Dummy implementation - showFolders always returns false");
     Q_UNUSED(localFilePaths);
     Q_UNUSED(startupId);
     return false;
@@ -48,6 +57,8 @@ bool DFileServices::showFolders(const QList<QString> localFilePaths, const QStri
 
 bool DFileServices::showFolder(QUrl url, const QString &startupId)
 {
+    qCDebug(logUtil) << "showFolder called with URL:" << url.toString() << "startupId:" << startupId;
+    qCWarning(logUtil, "Dummy implementation - showFolder always returns false");
     Q_UNUSED(url);
     Q_UNUSED(startupId);
     return false;
@@ -55,6 +66,8 @@ bool DFileServices::showFolder(QUrl url, const QString &startupId)
 
 bool DFileServices::showFolders(const QList<QUrl> urls, const QString &startupId)
 {
+    qCDebug(logUtil) << "showFolders called with" << urls.size() << "URLs, startupId:" << startupId;
+    qCWarning(logUtil, "Dummy implementation - showFolders always returns false");
     Q_UNUSED(urls);
     Q_UNUSED(startupId);
     return false;
@@ -62,6 +75,8 @@ bool DFileServices::showFolders(const QList<QUrl> urls, const QString &startupId
 
 bool DFileServices::showFileItemPropertie(QString localFilePath, const QString &startupId)
 {
+    qCDebug(logUtil) << "showFileItemPropertie called with path:" << localFilePath << "startupId:" << startupId;
+    qCWarning(logUtil, "Dummy implementation - showFileItemPropertie always returns false");
     Q_UNUSED(localFilePath);
     Q_UNUSED(startupId);
     return false;
@@ -69,6 +84,8 @@ bool DFileServices::showFileItemPropertie(QString localFilePath, const QString &
 
 bool DFileServices::showFileItemProperties(const QList<QString> localFilePaths, const QString &startupId)
 {
+    qCDebug(logUtil) << "showFileItemProperties called with" << localFilePaths.size() << "paths, startupId:" << startupId;
+    qCWarning(logUtil, "Dummy implementation - showFileItemProperties always returns false");
     Q_UNUSED(localFilePaths);
     Q_UNUSED(startupId);
     return false;
@@ -76,6 +93,8 @@ bool DFileServices::showFileItemProperties(const QList<QString> localFilePaths, 
 
 bool DFileServices::showFileItemPropertie(QUrl url, const QString &startupId)
 {
+    qCDebug(logUtil) << "showFileItemPropertie called with URL:" << url.toString() << "startupId:" << startupId;
+    qCWarning(logUtil, "Dummy implementation - showFileItemPropertie always returns false");
     Q_UNUSED(url);
     Q_UNUSED(startupId);
     return false;
@@ -83,6 +102,8 @@ bool DFileServices::showFileItemPropertie(QUrl url, const QString &startupId)
 
 bool DFileServices::showFileItemProperties(const QList<QUrl> urls, const QString &startupId)
 {
+    qCDebug(logUtil) << "showFileItemProperties called with" << urls.size() << "URLs, startupId:" << startupId;
+    qCWarning(logUtil, "Dummy implementation - showFileItemProperties always returns false");
     Q_UNUSED(urls);
     Q_UNUSED(startupId);
     return false;
@@ -90,6 +111,8 @@ bool DFileServices::showFileItemProperties(const QList<QUrl> urls, const QString
 
 bool DFileServices::showFileItem(QString localFilePath, const QString &startupId)
 {
+    qCDebug(logUtil) << "showFileItem called with path:" << localFilePath << "startupId:" << startupId;
+    qCWarning(logUtil, "Dummy implementation - showFileItem always returns false");
     Q_UNUSED(localFilePath);
     Q_UNUSED(startupId);
     return false;
@@ -97,6 +120,8 @@ bool DFileServices::showFileItem(QString localFilePath, const QString &startupId
 
 bool DFileServices::showFileItems(const QList<QString> localFilePaths, const QString &startupId)
 {
+    qCDebug(logUtil) << "showFileItems called with" << localFilePaths.size() << "paths, startupId:" << startupId;
+    qCWarning(logUtil, "Dummy implementation - showFileItems always returns false");
     Q_UNUSED(localFilePaths);
     Q_UNUSED(startupId);
     return false;
@@ -104,6 +129,8 @@ bool DFileServices::showFileItems(const QList<QString> localFilePaths, const QSt
 
 bool DFileServices::showFileItem(QUrl url, const QString &startupId)
 {
+    qCDebug(logUtil) << "showFileItem called with URL:" << url.toString() << "startupId:" << startupId;
+    qCWarning(logUtil, "Dummy implementation - showFileItem always returns false");
     Q_UNUSED(url);
     Q_UNUSED(startupId);
     return false;
@@ -111,6 +138,8 @@ bool DFileServices::showFileItem(QUrl url, const QString &startupId)
 
 bool DFileServices::showFileItems(const QList<QUrl> urls, const QString &startupId)
 {
+    qCDebug(logUtil) << "showFileItems called with" << urls.size() << "URLs, startupId:" << startupId;
+    qCWarning(logUtil, "Dummy implementation - showFileItems always returns false");
     Q_UNUSED(urls);
     Q_UNUSED(startupId);
     return false;
@@ -118,24 +147,32 @@ bool DFileServices::showFileItems(const QList<QUrl> urls, const QString &startup
 
 bool DFileServices::trash(QString localFilePath)
 {
+    qCDebug(logUtil) << "trash called with path:" << localFilePath;
+    qCWarning(logUtil, "Dummy implementation - trash always returns false");
     Q_UNUSED(localFilePath);
     return false;
 }
 
 bool DFileServices::trash(const QList<QString> localFilePaths)
 {
+    qCDebug(logUtil) << "trash called with" << localFilePaths.size() << "paths";
+    qCWarning(logUtil, "Dummy implementation - trash always returns false");
     Q_UNUSED(localFilePaths);
     return false;
 }
 
 bool DFileServices::trash(QUrl url)
 {
+    qCDebug(logUtil) << "trash called with URL:" << url.toString();
+    qCWarning(logUtil, "Dummy implementation - trash always returns false");
     Q_UNUSED(url);
     return false;
 }
 
 bool DFileServices::trash(const QList<QUrl> urls)
 {
+    qCDebug(logUtil) << "trash called with" << urls.size() << "URLs";
+    qCWarning(logUtil, "Dummy implementation - trash always returns false");
     Q_UNUSED(urls);
     return false;
 }
@@ -143,6 +180,8 @@ bool DFileServices::trash(const QList<QUrl> urls)
 
 QString DFileServices::errorMessage()
 {
+    qCDebug(logUtil) << "errorMessage called";
+    qCWarning(logUtil, "Dummy implementation - errorMessage returns empty string");
     return QString();
 }
 

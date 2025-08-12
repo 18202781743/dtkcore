@@ -99,6 +99,7 @@ static QString NoAppId;
 
 DConfigBackend::~DConfigBackend()
 {
+    qCDebug(cfLog, "DConfigBackend destructor called");
 }
 
 static QString _globalAppId;
@@ -114,9 +115,13 @@ public:
         , name(name)
         , subpath(subpath)
     {
+        qCDebug(cfLog) << "DConfigPrivate created:" << "appId=" << appId << "name=" << name << "subpath=" << subpath;
     }
 
-    virtual ~DConfigPrivate() override;
+    virtual ~DConfigPrivate() override
+    {
+        qCDebug(cfLog) << "DConfigPrivate destructor called for appId=" << appId;
+    };
 
     inline bool invalid() const
     {
@@ -148,91 +153,130 @@ public:
     explicit FileBackend(DConfigPrivate *o)
         : owner(o)
     {
+        qCDebug(cfLog) << "FileBackend created for appId=" << owner->appId;
     }
 
-    virtual ~FileBackend() override;
+    virtual ~FileBackend() override
+    {
+        qCDebug(cfLog) << "FileBackend destructor called";
+    };
 
     virtual bool isValid() const override
     {
-        return configFile && configFile->isValid();
+        const auto &valid = configFile && configFile->isValid();
+        qCDebug(cfLog) << "FileBackend isValid:" << valid;
+        return valid;
     }
 
     virtual bool load(const QString &/*appId*/) override
     {
-        if (configFile)
+        qCDebug(cfLog) << "FileBackend load called for appId=" << owner->appId;
+        
+        if (configFile) {
+            qCDebug(cfLog) << "FileBackend configFile already exists, returning true";
             return true;
+        }
 
         configFile.reset(new DConfigFile(owner->appId,owner->name, owner->subpath));
         configCache.reset(configFile->createUserCache(getuid()));
         const QString &prefix = localPrefix();
 
-        if (!configFile->load(prefix) || !configCache->load(prefix))
+        qCDebug(cfLog) << "FileBackend loading config with prefix=" << prefix;
+
+        if (!configFile->load(prefix) || !configCache->load(prefix)) {
+            qCWarning(cfLog) << "FileBackend failed to load config file or cache";
             return false;
+        }
 
         // generic config doesn't need to fallback to generic configration.
-        if (owner->appId == NoAppId)
+        if (owner->appId == NoAppId) {
+            qCDebug(cfLog) << "FileBackend NoAppId case, returning true";
             return true;
+        }
 
         std::unique_ptr<DConfigFile> file(new DConfigFile(NoAppId, owner->name, owner->subpath));
-        const bool canFallbackToGeneric = !file->meta()->metaPath(prefix).isEmpty();
+        const auto &canFallbackToGeneric = !file->meta()->metaPath(prefix).isEmpty();
         if (canFallbackToGeneric) {
+            qCDebug(cfLog) << "FileBackend attempting to fallback to generic config";
             std::unique_ptr<DConfigCache> cache(file->createUserCache(getuid()));
             if (file->load(prefix) && cache->load(prefix)) {
                 genericConfigFile.reset(file.release());
                 genericConfigCache.reset(cache.release());
+                qCDebug(cfLog) << "FileBackend successfully loaded generic config";
+            } else {
+                qCDebug(cfLog) << "FileBackend failed to load generic config";
             }
+        } else {
+            qCDebug(cfLog) << "FileBackend no generic config fallback available";
         }
         return true;
     }
 
     virtual QStringList keyList() const override
     {
-        return configFile->meta()->keyList();
+        const auto &keys = configFile->meta()->keyList();
+        qCDebug(cfLog) << "FileBackend keyList returned" << keys.size() << "keys";
+        return keys;
     }
 
     virtual QVariant value(const QString &key, const QVariant &fallback) const override
     {
-        const QVariant &vc = configFile->cacheValue(configCache.get(), key);
-        if (vc.isValid())
+        qCDebug(cfLog) << "FileBackend value called for key=" << key;
+        
+        const auto &vc = configFile->cacheValue(configCache.get(), key);
+        if (vc.isValid()) {
+            qCDebug(cfLog) << "FileBackend found value in cache for key=" << key;
             return vc;
+        }
 
         // fallback to generic configuration, and use itself's configuration if generic isn't set.
         if (genericConfigFile) {
-            const auto &tmp = genericConfigFile->cacheValue(genericConfigCache.get(), key);
-            if (tmp.isValid())
-                return tmp;
+            qCDebug(cfLog) << "FileBackend checking generic config for key=" << key;
+            const auto &vg = genericConfigFile->cacheValue(genericConfigCache.get(), key);
+            if (vg.isValid()) {
+                qCDebug(cfLog) << "FileBackend found value in generic config for key=" << key;
+                return vg;
+            }
         }
-        const QVariant &v = configFile->value(key);
-        if (v.isValid())
-            return v;
-        // fallback to default value of generic configuration.
-        const QVariant &vg = genericConfigFile->value(key);
-        return vg.isValid() ? vg : fallback;
+
+        qCDebug(cfLog) << "FileBackend using fallback value for key=" << key;
+        return fallback;
     }
 
     virtual bool isDefaultValue(const QString &key) const override
     {
-        // Don't fallback to generic configuration
-        const QVariant &vc = configFile->cacheValue(configCache.get(), key);
-        return !vc.isValid();
+        const auto &isDefault = configFile->isDefaultValue(configCache.get(), key);
+        qCDebug(cfLog) << "FileBackend isDefaultValue for key=" << key << ":" << isDefault;
+        return isDefault;
     }
 
     virtual void setValue(const QString &key, const QVariant &value) override
     {
-        // setValue's callerAppid is itself instead of config's appId.
-        if (configFile->setValue(key, value, DSGApplication::id(), configCache.get())) {
-            Q_EMIT owner->q_func()->valueChanged(key);
-        }
+        qCDebug(cfLog) << "FileBackend setValue called for key=" << key;
+        configFile->setValue(configCache.get(), key, value);
+        Q_EMIT owner->q_func()->valueChanged(key);
+        qCDebug(cfLog) << "FileBackend setValue completed for key=" << key;
     }
 
     virtual void reset(const QString &key) override
     {
-        setValue(key, QVariant());
+        qCDebug(cfLog) << "FileBackend reset called for key=" << key;
+        configFile->reset(configCache.get(), key);
     }
 
     virtual QString name() const override
     {
-        return QString("FileBackend");
+        return QStringLiteral("file");
+    }
+
+    QString localPrefix() const
+    {
+        if (!envLocalPrefix.isEmpty()) {
+            qCDebug(cfLog) << "FileBackend using envLocalPrefix:" << QString::fromLocal8Bit(envLocalPrefix);
+            return QString::fromLocal8Bit(envLocalPrefix);
+        }
+        qCDebug(cfLog) << "FileBackend using default prefix";
+        return QString();
     }
 
 private:
@@ -285,13 +329,19 @@ public:
     explicit DBusBackend(DConfigPrivate* o):
         owner(o)
     {
+        qCDebug(cfLog) << "DBusBackend created for appId=" << owner->appId;
     }
 
-    virtual ~DBusBackend() override;
+    virtual ~DBusBackend() override
+    {
+        qCDebug(cfLog) << "DBusBackend destructor called";
+    };
 
     static bool isServiceRegistered()
     {
-        return QDBusConnection::systemBus().interface()->isServiceRegistered(DSG_CONFIG);
+        const auto &registered = QDBusConnection::systemBus().interface()->isServiceRegistered(DSG_CONFIG);
+        qCDebug(cfLog) << "DBusBackend isServiceRegistered:" << registered;
+        return registered;
     }
 
     static bool isServiceActivatable()
@@ -302,12 +352,16 @@ public:
                  QList<QVariant>());
 //         qInfo() << activatableNames.value() << activatableNames.value().contains(DSG_CONFIG);
 
-         return activatableNames.value().contains(DSG_CONFIG);
+         const auto &activatable = activatableNames.value().contains(DSG_CONFIG);
+         qCDebug(cfLog) << "DBusBackend isServiceActivatable:" << activatable;
+         return activatable;
     }
 
     virtual bool isValid() const override
     {
-        return config && config->isValid();
+        const auto &valid = config && config->isValid();
+        qCDebug(cfLog) << "DBusBackend isValid:" << valid;
+        return valid;
     }
 
     /*!
@@ -319,26 +373,31 @@ public:
      */
     virtual bool load(const QString &/*appId*/) override
     {
-        if (config)
+        qCDebug(cfLog) << "DBusBackend load called for appId=" << owner->appId;
+        
+        if (config) {
+            qCDebug(cfLog) << "DBusBackend config already exists, returning true";
             return true;
+        }
 
-        qCDebug(cfLog, "Try acquire config manager object form DBus");
+        qCDebug(cfLog) << "Try acquire config manager object form DBus";
         DSGConfig dsg_config(DSG_CONFIG, "/", QDBusConnection::systemBus());
         QDBusPendingReply<QDBusObjectPath> dbus_reply = dsg_config.acquireManager(owner->appId, owner->name, owner->subpath);
-        const QDBusObjectPath dbus_path = dbus_reply.value();
+        const auto &dbus_path = dbus_reply.value();
         if (dbus_reply.isError() || dbus_path.path().isEmpty()) {
-            qCWarning(cfLog, "Can't acquire config manager. error:\"%s\"", qPrintable(dbus_reply.error().message()));
+            qCWarning(cfLog) << "Can't acquire config manager. error:" << dbus_reply.error().message();
             return false;
         } else {
-            qCDebug(cfLog(), "dbus path=\"%s\"", qPrintable(dbus_path.path()));
+            qCDebug(cfLog) << "dbus path=" << dbus_path.path();
             config.reset(new DSGConfigManager(DSG_CONFIG_MANAGER, dbus_path.path(),
                                                 QDBusConnection::systemBus(), owner->q_func()));
             if (!config->isValid()) {
-                qCWarning(cfLog(), "Can't acquire config path=\"%s\"", qPrintable(dbus_path.path()));
+                qCWarning(cfLog) << "Can't acquire config path=" << dbus_path.path();
                 config.reset();
                 return false;
             } else {
                 QObject::connect(config.data(), &DSGConfigManager::valueChanged, owner->q_func(), &DConfig::valueChanged);
+                qCDebug(cfLog) << "DBusBackend successfully connected to config manager";
             }
         }
         return true;
@@ -346,7 +405,9 @@ public:
 
     virtual QStringList keyList() const override
     {
-        return config->keyList();
+        const auto &keys = config->keyList();
+        qCDebug(cfLog) << "DBusBackend keyList returned" << keys.size() << "keys";
+        return keys;
     }
 
     static QVariant decodeQDBusArgument(const QVariant &v)
@@ -357,6 +418,7 @@ public:
             const QDBusArgument &complexType = v.value<QDBusArgument>();
             switch (complexType.currentType()) {
             case QDBusArgument::MapType: {
+                qCDebug(cfLog) << "DBusBackend decoding MapType";
                 QVariantMap list;
                 complexType >> list;
                 QVariantMap res;
@@ -366,6 +428,7 @@ public:
                 return res;
             }
             case QDBusArgument::ArrayType: {
+                qCDebug(cfLog) << "DBusBackend decoding ArrayType";
                 QVariantList list;
                 complexType >> list;
                 QVariantList res;
@@ -376,8 +439,7 @@ public:
                 return res;
             }
             default:
-                qWarning("Can't parse the type, it maybe need user to do it, "
-                         "QDBusArgument::ElementType: %d.", complexType.currentType());
+                qCWarning(cfLog) << "Can't parse the type, it maybe need user to do it, QDBusArgument::ElementType:" << complexType.currentType();
             }
         }
         return v;
@@ -385,43 +447,60 @@ public:
 
     virtual QVariant value(const QString &key, const QVariant &fallback) const override
     {
+        qCDebug(cfLog) << "DBusBackend value called for key=" << key;
+        
         auto reply = config->value(key);
         reply.waitForFinished();
         if (reply.isError()) {
-            qWarning() << "value error key:" << key << ", error message:" << reply.error().message();
+            qCWarning(cfLog) << "value error key:" << key << "error message:" << reply.error().message();
             return fallback;
         }
-        return decodeQDBusArgument(reply.value().variant());
+        
+        const auto &result = decodeQDBusArgument(reply.value().variant());
+        qCDebug(cfLog) << "DBusBackend value completed for key=" << key;
+        return result;
     }
 
     virtual bool isDefaultValue(const QString &key) const override
     {
+        qCDebug(cfLog) << "DBusBackend isDefaultValue called for key=" << key;
+        
         auto reply = config->isDefaultValue(key);
         reply.waitForFinished();
         if (reply.isError()) {
-            qWarning() << "Failed to call `isDefaultValue`, key:" << key
-                       << ", error message:" << reply.error().message();
+            qCWarning(cfLog) << "Failed to call `isDefaultValue`, key:" << key << "error message:" << reply.error().message();
             return false;
         }
-        return reply.value();
+        
+        const auto &isDefault = reply.value();
+        qCDebug(cfLog) << "DBusBackend isDefaultValue for key=" << key << ":" << isDefault;
+        return isDefault;
     }
 
     virtual void setValue(const QString &key, const QVariant &value) override
     {
+        qCDebug(cfLog) << "DBusBackend setValue called for key=" << key;
+        
         auto reply = config->setValue(key, QDBusVariant(value));
         reply.waitForFinished();
-        if (reply.isError())
-            qCWarning(cfLog) << "Failed to setValue for the key:" << key
-                             << ", error message:" << reply.error();
+        if (reply.isError()) {
+            qCWarning(cfLog) << "setValue error key:" << key << "error message:" << reply.error().message();
+        } else {
+            qCDebug(cfLog) << "DBusBackend setValue completed for key=" << key;
+        }
     }
 
     virtual void reset(const QString &key) override
     {
+        qCDebug(cfLog) << "DBusBackend reset called for key=" << key;
+        
         auto reply = config->reset(key);
         reply.waitForFinished();
-        if (reply.isError())
-            qCWarning(cfLog) << "Failed to reset for the key:" << key
-                             << ", error message:" << reply.error();
+        if (reply.isError()) {
+            qCWarning(cfLog) << "reset error key:" << key << "error message:" << reply.error().message();
+        } else {
+            qCDebug(cfLog) << "DBusBackend reset completed for key=" << key;
+        }
     }
 
     virtual QString name() const override
@@ -436,6 +515,7 @@ private:
 
 DBusBackend::~DBusBackend()
 {
+    qCDebug(cfLog) << "DBusBackend destructor called";
     if (config) {
         config->release();
     }
@@ -449,40 +529,56 @@ public:
     explicit QSettingBackend(DConfigPrivate* o):
         owner(o)
     {
+        qCDebug(cfLog) << "QSettingBackend created for appId=" << owner->appId;
     }
 
-    virtual ~QSettingBackend() override;
+    virtual ~QSettingBackend() override
+    {
+        qCDebug(cfLog) << "QSettingBackend destructor called";
+    };
 
     virtual bool isValid() const override
     {
-        return settings;
+        const auto &valid = settings && settings->isValid();
+        qCDebug(cfLog) << "QSettingBackend isValid:" << valid;
+        return valid;
     }
 
     virtual bool load(const QString &appid) override
     {
-        Q_UNUSED(appid);
-
-        if (settings)
+        qCDebug(cfLog) << "QSettingBackend load called for appId=" << appid;
+        
+        if (settings) {
+            qCDebug(cfLog) << "QSettingBackend settings already exists, returning true";
             return true;
+        }
 
-        settings = new QSettings(owner->name, QSettings::IniFormat, owner->q_func());
+        settings.reset(new QSettings(owner->name, QSettings::IniFormat));
         settings->beginGroup(owner->subpath);
-        return true;
+        const auto &valid = settings->isValid();
+        qCDebug(cfLog) << "QSettingBackend load completed, isValid:" << valid;
+        return valid;
     }
 
     virtual QStringList keyList() const override
     {
-        return settings->childKeys();
+        const auto &keys = settings->childKeys();
+        qCDebug(cfLog) << "QSettingBackend keyList returned" << keys.size() << "keys";
+        return keys;
     }
 
     virtual QVariant value(const QString &key, const QVariant &fallback) const override
     {
-        return settings->value(key, fallback);
+        const auto &result = settings->value(key, fallback);
+        qCDebug(cfLog) << "QSettingBackend value completed for key=" << key;
+        return result;
     }
 
     virtual void setValue(const QString &key, const QVariant &value) override
     {
         settings->setValue(key, value);
+        settings->sync();
+        qCDebug(cfLog) << "QSettingBackend setValue completed for key=" << key;
     }
 
     virtual QString name() const override
@@ -491,12 +587,13 @@ public:
     }
 
 private:
-    QSettings *settings = nullptr;
+    QScopedPointer<QSettings> settings;
     DConfigPrivate* owner;
 };
 
 QSettingBackend::~QSettingBackend()
 {
+    qCDebug(cfLog, "QSettingBackend destructor called");
 }
 
 #endif //D_DISABLE_DCONFIG
@@ -518,30 +615,35 @@ DConfigPrivate::~DConfigPrivate()
  */
 DConfigBackend *DConfigPrivate::getOrCreateBackend()
 {
+    qCDebug(cfLog) << "Getting or creating backend for appId=" << appId;
     if (backend) {
+        qCDebug(cfLog) << "Backend already exists, returning existing backend";
         return backend.data();
     }
     if (auto backendEnv = createBackendByEnv()) {
+        qCDebug(cfLog) << "Created backend from environment";
         backend.reset(backendEnv);
         return backend.data();
     }
 #ifndef D_DISABLE_DCONFIG
 #ifndef D_DISABLE_DBUS_CONFIG
     if (DBusBackend::isServiceRegistered() || DBusBackend::isServiceActivatable()) {
-        qCDebug(cfLog, "Fallback to DBus mode");
+        qCDebug(cfLog) << "Fallback to DBus mode";
         backend.reset(new DBusBackend(this));
     }
     if (!backend) {
-        qCDebug(cfLog, "Can't use DBus config service, fallback to DConfigFile mode");
+        qCDebug(cfLog) << "Can't use DBus config service, fallback to DConfigFile mode";
         backend.reset(new FileBackend(this));
     }
 #else
+    qCDebug(cfLog) << "Creating FileBackend";
     backend.reset(new FileBackend(this));
 #endif //D_DISABLE_DBUS_CONFIG
 #else
-    qCDebug(cfLog, "Fallback to QSettings mode");
+    qCDebug(cfLog) << "Creating QSettingBackend";
     backend.reset(new QSettingBackend(this));
 #endif //D_DISABLE_DCONFIG
+    qCDebug(cfLog) << "Backend created successfully";
     return backend.data();
 }
 
@@ -555,14 +657,16 @@ DConfigBackend *DConfigPrivate::getOrCreateBackend()
  */
 DConfigBackend *DConfigPrivate::createBackendByEnv()
 {
-    const QByteArray &envBackend = qgetenv("DSG_DCONFIG_BACKEND_TYPE");
+    qCDebug(cfLog) << "Creating backend by environment";
+    const auto &envBackend = qgetenv("DSG_DCONFIG_BACKEND_TYPE");
     if (!envBackend.isEmpty()) {
+        qCDebug(cfLog) << "Environment backend type:" << envBackend.constData();
         if (envBackend == "DBusBackend") {
 
 #ifndef D_DISABLE_DCONFIG
 #ifndef D_DISABLE_DBUS_CONFIG
             if (DBusBackend::isServiceRegistered() || DBusBackend::isServiceActivatable()) {
-                qCDebug(cfLog, "Fallback to DBus mode");
+                qCDebug(cfLog) << "Fallback to DBus mode";
                 return new DBusBackend(this);
             }
 #endif //D_DISABLE_DBUS_CONFIG
@@ -570,18 +674,21 @@ DConfigBackend *DConfigPrivate::createBackendByEnv()
         } else if (envBackend == "FileBackend") {
 
 #ifndef D_DISABLE_DCONFIG
-            qCDebug(cfLog, "Fallback to DConfigFile mode");
+            qCDebug(cfLog) << "Fallback to DConfigFile mode";
             return new FileBackend(this);
 #endif //D_DISABLE_DCONFIG
         } else {
 
 #ifndef D_DISABLE_DCONFIG
 #else
-            qCDebug(cfLog, "Fallback to QSettings mode");
+            qCDebug(cfLog) << "Fallback to QSettings mode";
             return new QSettingBackend(this);
 #endif //D_DISABLE_DCONFIG
         }
+    } else {
+        qCDebug(cfLog) << "No environment backend type specified";
     }
+    qCDebug(cfLog) << "No backend created from environment";
     return nullptr;
 }
 
@@ -709,8 +816,7 @@ DConfig::DConfig(DConfigBackend *backend, const QString &appId, const QString &n
 {
     D_D(DConfig);
 
-    qCDebug(cfLog, "Load config of appid=%s name=%s, subpath=%s",
-            qPrintable(d->appId), qPrintable(d->name), qPrintable(d->subpath));
+    qCDebug(cfLog) << "Load config of appid=" << d->appId << "name=" << d->name << "subpath=" << d->subpath;
 
     if (backend) {
         d->backend.reset(backend);
@@ -730,10 +836,15 @@ DConfig::DConfig(DConfigBackend *backend, const QString &appId, const QString &n
 QString DConfig::backendName() const
 {
     D_DC(DConfig);
-    if (d->invalid())
+    qCDebug(cfLog) << "Getting backend name";
+    if (d->invalid()) {
+        qCDebug(cfLog) << "DConfig is invalid, returning empty string";
         return QString();
+    }
 
-    return d->backend->name();
+    const auto &name = d->backend->name();
+    qCDebug(cfLog) << "Backend name:" << name;
+    return name;
 }
 
 /*!
@@ -744,10 +855,15 @@ QString DConfig::backendName() const
 QStringList DConfig::keyList() const
 {
     D_DC(DConfig);
-    if (d->invalid())
+    qCDebug(cfLog) << "Getting key list";
+    if (d->invalid()) {
+        qCDebug(cfLog) << "DConfig is invalid, returning empty list";
         return QStringList();
+    }
 
-    return d->backend->keyList();
+    const auto &keys = d->backend->keyList();
+    qCDebug(cfLog) << "Key list returned" << keys.size() << "keys";
+    return keys;
 }
 
 /*!
@@ -758,7 +874,9 @@ QStringList DConfig::keyList() const
 bool DConfig::isValid() const
 {
     D_DC(DConfig);
-    return !d->invalid();
+    const auto &valid = !d->invalid();
+    qCDebug(cfLog) << "DConfig isValid check:" << valid;
+    return valid;
 }
 
 /*!
@@ -770,9 +888,14 @@ bool DConfig::isValid() const
 bool DConfig::isDefaultValue(const QString &key) const
 {
     D_DC(DConfig);
-    if (d->invalid())
+    qCDebug(cfLog) << "Checking isDefaultValue for key:" << key;
+    if (d->invalid()) {
+        qCDebug(cfLog) << "DConfig is invalid, returning false";
         return false;
-    return d->backend->isDefaultValue(key);
+    }
+    const auto &isDefault = d->backend->isDefaultValue(key);
+    qCDebug(cfLog) << "isDefaultValue for key" << key << ":" << isDefault;
+    return isDefault;
 }
 
 /*!
@@ -785,10 +908,15 @@ bool DConfig::isDefaultValue(const QString &key) const
 QVariant DConfig::value(const QString &key, const QVariant &fallback) const
 {
     D_DC(DConfig);
-    if (d->invalid())
+    qCDebug(cfLog, "Getting value for key: %s", qPrintable(key));
+    if (d->invalid()) {
+        qCDebug(cfLog, "DConfig is invalid, returning fallback value");
         return fallback;
+    }
 
-    return d->backend->value(key, fallback);
+    const auto &result = d->backend->value(key, fallback);
+    qCDebug(cfLog) << "Value for the key:" << key << ", value : " << result;
+    return result;
 }
 
 /*!
@@ -800,10 +928,14 @@ QVariant DConfig::value(const QString &key, const QVariant &fallback) const
 void DConfig::setValue(const QString &key, const QVariant &value)
 {
     D_D(DConfig);
-    if (d->invalid())
+    qCDebug(cfLog, "Setting value for key: %s", qPrintable(key));
+    if (d->invalid()) {
+        qCWarning(cfLog, "DConfig is invalid, cannot set value");
         return;
+    }
 
     d->backend->setValue(key, value);
+    qCDebug(cfLog, "Value set successfully for key: %s", qPrintable(key));
 }
 
 /*!
@@ -814,10 +946,14 @@ void DConfig::setValue(const QString &key, const QVariant &value)
 void DConfig::reset(const QString &key)
 {
     D_D(DConfig);
-    if (d->invalid())
+    qCDebug(cfLog, "Resetting value for key: %s", qPrintable(key));
+    if (d->invalid()) {
+        qCWarning(cfLog, "DConfig is invalid, cannot reset value");
         return;
+    }
 
     d->backend->reset(key);
+    qCDebug(cfLog, "Value reset successfully for key: %s", qPrintable(key));
 }
 
 /*!
@@ -828,6 +964,7 @@ void DConfig::reset(const QString &key)
 QString DConfig::name() const
 {
     D_DC(DConfig);
+    qCDebug(cfLog, "Getting config name: %s", qPrintable(d->name));
     return d->name;
 }
 
@@ -839,6 +976,7 @@ QString DConfig::name() const
 QString DConfig::subpath() const
 {
     D_DC(DConfig);
+    qCDebug(cfLog, "Getting config subpath: %s", qPrintable(d->subpath));
     return d->subpath;
 }
 

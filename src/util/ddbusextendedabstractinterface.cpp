@@ -14,8 +14,11 @@
 
 #include <QtCore/QDebug>
 #include <QtCore/QMetaProperty>
+#include <QtCore/QLoggingCategory>
 
 DCORE_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(logUtil, "dtk.core.util")
 
 Q_GLOBAL_STATIC_WITH_ARGS(QByteArray, dBusInterface, ("org.freedesktop.DBus"))
 Q_GLOBAL_STATIC_WITH_ARGS(QByteArray, dBusPropertiesInterface, ("org.freedesktop.DBus.Properties"))
@@ -31,19 +34,24 @@ DDBusExtendedAbstractInterface::DDBusExtendedAbstractInterface(
     , m_getAllPendingCallWatcher(0)
     , m_propertiesChangedConnected(false)
 {
+    qCDebug(logUtil) << "Creating DDBusExtendedAbstractInterface: service=" << service << "path=" << path << "interface=" << interface;
+    
     const_cast<QDBusConnection &>(connection)
         .connect(QString("org.freedesktop.DBus"),
-                 QString("/org/freedesktop/DBus"),
+                 QString("/org.freedesktop/DBus"),
                  QString("org.freedesktop.DBus"),
                  QString("NameOwnerChanged"),
                  this,
                  SLOT(onDBusNameOwnerChanged(QString, QString, QString)));
 }
 
-DDBusExtendedAbstractInterface::~DDBusExtendedAbstractInterface() {}
+DDBusExtendedAbstractInterface::~DDBusExtendedAbstractInterface() {
+    qCDebug(logUtil) << "DDBusExtendedAbstractInterface destructor called";
+}
 
 void DDBusExtendedAbstractInterface::setSync(bool sync)
 {
+    qCDebug(logUtil) << "Setting sync mode:" << (sync ? "true" : "false");
     setSync(sync, true);
 }
 
@@ -56,26 +64,30 @@ void DDBusExtendedAbstractInterface::setSync(bool sync)
  */
 void DDBusExtendedAbstractInterface::setSync(bool sync, bool autoStart)
 {
+    qCDebug(logUtil) << "Setting sync mode:" << (sync ? "true" : "false") << "autoStart:" << (autoStart ? "true" : "false");
     m_sync = sync;
 
     // init all properties
-    if (autoStart && !m_sync && !isValid())
+    if (autoStart && !m_sync && !isValid()) {
+        qCDebug(logUtil) << "Starting service process due to async mode and invalid state";
         startServiceProcess();
+    }
 }
 
 void DDBusExtendedAbstractInterface::getAllProperties()
 {
+    qCDebug(logUtil) << "Getting all properties for interface:" << interface();
     m_lastExtendedError = QDBusError();
 
     if (!isValid()) {
         QString errorMessage = QStringLiteral("This Extended DBus interface is not valid yet.");
         m_lastExtendedError = QDBusMessage::createError(QDBusError::Failed, errorMessage);
-        qDebug() << Q_FUNC_INFO << errorMessage;
+        qCWarning(logUtil, "Interface not valid: %s", qPrintable(errorMessage));
         return;
     }
 
     if (!m_sync && m_getAllPendingCallWatcher) {
-        // Call already in place, not repeating ...
+        qCDebug(logUtil) << "Call already in place, not repeating";
         return;
     }
 
@@ -83,25 +95,28 @@ void DDBusExtendedAbstractInterface::getAllProperties()
     msg << interface();
 
     if (m_sync) {
+        qCDebug(logUtil) << "Making synchronous call to get all properties";
         QDBusMessage reply = connection().call(msg);
 
         if (reply.type() != QDBusMessage::ReplyMessage) {
             m_lastExtendedError = QDBusError(reply);
-            qWarning() << Q_FUNC_INFO << m_lastExtendedError.message();
+            qCWarning(logUtil, "DBus call failed: %s", qPrintable(m_lastExtendedError.message()));
             return;
         }
 
         if (reply.signature() != QLatin1String("a{sv}")) {
             QString errorMessage = QStringLiteral("Invalid signature \"%1\" in return from call to %2")
                                        .arg(reply.signature(), QString(*dBusPropertiesInterface()));
-            qWarning() << Q_FUNC_INFO << errorMessage;
+            qCWarning(logUtil, "Invalid signature: %s", qPrintable(errorMessage));
             m_lastExtendedError = QDBusError(QDBusError::InvalidSignature, errorMessage);
             return;
         }
 
         QVariantMap value = reply.arguments().at(0).toMap();
+        qCDebug(logUtil) << "Got" << value.size() << "properties";
         onPropertiesChanged(interface(), value, QStringList());
     } else {
+        qCDebug(logUtil) << "Making asynchronous call to get all properties";
         QDBusPendingReply<QVariantMap> async = connection().asyncCall(msg);
         m_getAllPendingCallWatcher = new QDBusPendingCallWatcher(async, this);
 
@@ -311,9 +326,10 @@ void DDBusExtendedAbstractInterface::asyncSetProperty(const QString &propertyNam
 void DDBusExtendedAbstractInterface::startServiceProcess()
 {
     const QString &servName = service();
+    qCDebug(logUtil) << "Starting service process for:" << servName;
 
     if (isValid()) {
-        qWarning() << "Service" << servName << "is already started.";
+        qCWarning(logUtil, "Service %s is already started", qPrintable(servName));
         return;
     }
 
@@ -328,10 +344,14 @@ void DDBusExtendedAbstractInterface::startServiceProcess()
 
 void DDBusExtendedAbstractInterface::onStartServiceProcessFinished(QDBusPendingCallWatcher *w)
 {
+    qCDebug(logUtil) << "Service start process finished";
+    
     if (w->isError()) {
         m_lastExtendedError = w->error();
+        qCWarning(logUtil, "Service start failed: %s", qPrintable(w->error().message()));
     } else {
         m_lastExtendedError = QDBusError();
+        qCDebug(logUtil) << "Service start completed successfully";
     }
 
     QDBusPendingReply<quint32> reply = *w;
@@ -451,11 +471,15 @@ void DDBusExtendedAbstractInterface::onPropertiesChanged(const QString &interfac
 
 void DDBusExtendedAbstractInterface::onDBusNameOwnerChanged(const QString &name, const QString &oldOwner, const QString &newOwner)
 {
+    qCDebug(logUtil) << "DBus name owner changed: name=" << name << "oldOwner=" << oldOwner << "newOwner=" << newOwner;
+    
     if (name == service() && oldOwner.isEmpty()) {
         m_dbusOwner = newOwner;
+        qCDebug(logUtil) << "Service appeared, setting valid to true";
         Q_EMIT serviceValidChanged(true);
     } else if (name == m_dbusOwner && newOwner.isEmpty()) {
         m_dbusOwner.clear();
+        qCDebug(logUtil) << "Service disappeared, setting valid to false";
         Q_EMIT serviceValidChanged(false);
     }
 }

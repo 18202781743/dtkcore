@@ -68,14 +68,17 @@ public:
 DTimedLoopPrivate::DTimedLoopPrivate(DTimedLoop *qq)
     : DObjectPrivate (qq)
 {
+    qCDebug(logTimedLoop, "DTimedLoopPrivate created");
 }
 
 DTimedLoopPrivate::~DTimedLoopPrivate()
 {
+    qCDebug(logTimedLoop, "DTimedLoopPrivate destroyed");
 }
 
 void DTimedLoopPrivate::setExecutionName(const QString &executionName)
 {
+    qCDebug(logTimedLoop, "Setting execution name: %s", qPrintable(executionName));
     m_exectionName = executionName;
 }
 
@@ -83,52 +86,54 @@ DTimedLoop::DTimedLoop(QObject *parent) noexcept
     : QEventLoop (parent)
     , DObject (*new DTimedLoopPrivate(this))
 {
+    qCDebug(logTimedLoop, "DTimedLoop created with parent");
 }
 
 DTimedLoop::DTimedLoop() noexcept
     : QEventLoop ()
     , DObject (*new DTimedLoopPrivate(this))
 {
+    qCDebug(logTimedLoop, "DTimedLoop created without parent");
 }
 
 DTimedLoop::~DTimedLoop()
 {
-}
-
-int DTimedLoop::runningTime() {
-    Q_D(DTimedLoop);
-    if (QEventLoop::isRunning()) {
-        return d->m_startTime.msecsTo(QTime::currentTime());
-    }
-    return d->m_startTime.msecsTo(d->m_stopTime);
+    qCDebug(logTimedLoop, "DTimedLoop destroyed");
 }
 
 void DTimedLoop::setTimeDump(bool flag)
 {
-    Q_D(DTimedLoop);
+    qCDebug(logTimedLoop, "Setting time dump flag: %s", flag ? "true" : "false");
+    D_D(DTimedLoop);
     d->m_timeDumpFlag = flag;
 }
 
 void DTimedLoop::exit(int returnCode)
 {
+    qCDebug(logTimedLoop, "Exiting with return code: %d", returnCode);
     // 避免在子线程中提前被执行
     DThreadUtil::runInMainThread([this, returnCode]{
+        qCDebug(logTimedLoop, "Executing exit in main thread with return code: %d", returnCode);
         QEventLoop::exit(returnCode);
     });
 }
 
 int DTimedLoop::exec(QEventLoop::ProcessEventsFlags flags)
 {
-    Q_D(DTimedLoop);
+    qCDebug(logTimedLoop, "Executing with flags: %d", flags);
+    D_D(DTimedLoop);
     DTimedLoopPrivate::LoopGuard guard(d);
     return QEventLoop::exec(flags);
 }
 
 int DTimedLoop::exec(int durationTimeMs, QEventLoop::ProcessEventsFlags flags)
 {
+    qCDebug(logTimedLoop, "Executing for duration: %d ms with flags: %d", durationTimeMs, flags);
     Q_D(DTimedLoop);
     int runningTime = durationTimeMs < 0 ? 0 : durationTimeMs;
+    qCDebug(logTimedLoop, "Setting timer for %d ms", runningTime);
     QTimer::singleShot(runningTime, [this] {
+        qCDebug(logTimedLoop, "Timer expired, exiting event loop");
         QEventLoop::exit(0);
     });
     DTimedLoopPrivate::LoopGuard guard(d);
@@ -137,16 +142,33 @@ int DTimedLoop::exec(int durationTimeMs, QEventLoop::ProcessEventsFlags flags)
 
 int DTimedLoop::exec(const QString &executionName, QEventLoop::ProcessEventsFlags flags)
 {
+    qCDebug(logTimedLoop, "Executing with name: %s, flags: %d", qPrintable(executionName), flags);
     Q_D(DTimedLoop);
     d->setExecutionName(executionName);
+    qCDebug(logTimedLoop, "Calling exec with flags: %d", flags);
     return exec(flags);
 }
 
 int DTimedLoop::exec(int durationMs, const QString &executionName, QEventLoop::ProcessEventsFlags flags)
 {
+    qCDebug(logTimedLoop, "Executing for duration: %d ms with name: %s, flags: %d", durationMs, qPrintable(executionName), flags);
     Q_D(DTimedLoop);
     d->setExecutionName(executionName);
+    qCDebug(logTimedLoop, "Calling exec with duration: %d ms", durationMs);
     return exec(durationMs, flags);
+}
+
+int DTimedLoop::runningTime() {
+    qCDebug(logTimedLoop, "Getting running time");
+    Q_D(DTimedLoop);
+    if (QEventLoop::isRunning()) {
+        int time = d->m_startTime.msecsTo(QTime::currentTime());
+        qCDebug(logTimedLoop, "Loop is running, time: %d ms", time);
+        return time;
+    }
+    int time = d->m_startTime.msecsTo(d->m_stopTime);
+    qCDebug(logTimedLoop, "Loop is not running, time: %d ms", time);
+    return time;
 }
 
 DCORE_END_NAMESPACE

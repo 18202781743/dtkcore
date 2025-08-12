@@ -7,8 +7,11 @@
 
 #include <QEvent>
 #include <QDebug>
+#include <QLoggingCategory>
 
 DCORE_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(logFileSystem, "dtk.core.filesystem")
 
 QList<DBaseFileWatcher*> DBaseFileWatcherPrivate::watcherList;
 DBaseFileWatcherPrivate::DBaseFileWatcherPrivate(DBaseFileWatcher *qq)
@@ -27,6 +30,7 @@ DBaseFileWatcherPrivate::DBaseFileWatcherPrivate(DBaseFileWatcher *qq)
 
 DBaseFileWatcher::~DBaseFileWatcher()
 {
+    qCDebug(logFileSystem, "DBaseFileWatcher destructor called for URL: %s", qPrintable(fileUrl().toString()));
     stopWatcher();
     DBaseFileWatcherPrivate::watcherList.removeOne(this);
 }
@@ -35,6 +39,7 @@ QUrl DBaseFileWatcher::fileUrl() const
 {
     Q_D(const DBaseFileWatcher);
 
+    qCDebug(logFileSystem, "Getting file URL: %s", qPrintable(d->url.toString()));
     return d->url;
 }
 
@@ -47,15 +52,20 @@ bool DBaseFileWatcher::startWatcher()
 {
     Q_D(DBaseFileWatcher);
 
-    if (d->started)
-        return true;
+    qCDebug(logFileSystem, "Starting file watcher for URL: %s", qPrintable(d->url.toString()));
 
-    if (d->start()) {
-        d->started = true;
-
+    if (d->started) {
+        qCDebug(logFileSystem, "File watcher already started");
         return true;
     }
 
+    if (d->start()) {
+        d->started = true;
+        qCDebug(logFileSystem, "File watcher started successfully");
+        return true;
+    }
+
+    qCWarning(logFileSystem, "Failed to start file watcher");
     return false;
 }
 
@@ -68,15 +78,20 @@ bool DBaseFileWatcher::stopWatcher()
 {
     Q_D(DBaseFileWatcher);
 
-    if (!d->started)
+    qCDebug(logFileSystem, "Stopping file watcher for URL: %s", qPrintable(d->url.toString()));
+
+    if (!d->started) {
+        qCDebug(logFileSystem, "File watcher not started");
         return false;
+    }
 
     if (d->stop()) {
         d->started = false;
-
+        qCDebug(logFileSystem, "File watcher stopped successfully");
         return true;
     }
 
+    qCWarning(logFileSystem, "Failed to stop file watcher");
     return false;
 }
 
@@ -87,6 +102,7 @@ bool DBaseFileWatcher::stopWatcher()
  */
 bool DBaseFileWatcher::restartWatcher()
 {
+    qCDebug(logFileSystem, "Restarting file watcher for URL: %s", qPrintable(fileUrl().toString()));
     bool ok = stopWatcher();
     return ok && startWatcher();
 }
@@ -99,6 +115,8 @@ bool DBaseFileWatcher::restartWatcher()
  */
 void DBaseFileWatcher::setEnabledSubfileWatcher(const QUrl &subfileUrl, bool enabled)
 {
+    qCDebug(logFileSystem, "Setting subfile watcher enabled: %s, enabled: %s", 
+            qPrintable(subfileUrl.toString()), enabled ? "true" : "false");
     Q_UNUSED(subfileUrl)
     Q_UNUSED(enabled)
 }
@@ -116,18 +134,25 @@ void DBaseFileWatcher::setEnabledSubfileWatcher(const QUrl &subfileUrl, bool ena
  */
 bool DBaseFileWatcher::ghostSignal(const QUrl &targetUrl, DBaseFileWatcher::SignalType1 signal, const QUrl &arg1)
 {
-    if (!signal)
+    qCDebug(logFileSystem, "Emitting ghost signal for target URL: %s, arg1: %s", 
+            qPrintable(targetUrl.toString()), qPrintable(arg1.toString()));
+
+    if (!signal) {
+        qCWarning(logFileSystem, "Invalid signal pointer");
         return false;
+    }
 
     bool ok = false;
 
     for (DBaseFileWatcher *watcher : DBaseFileWatcherPrivate::watcherList) {
         if (watcher->fileUrl() == targetUrl) {
             ok = true;
+            qCDebug(logFileSystem, "Found matching watcher, emitting signal");
             (watcher->*signal)(arg1);
         }
     }
 
+    qCDebug(logFileSystem, "Ghost signal emission result: %s", ok ? "success" : "failed");
     return ok;
 }
 
@@ -141,18 +166,25 @@ bool DBaseFileWatcher::ghostSignal(const QUrl &targetUrl, DBaseFileWatcher::Sign
  */
 bool DBaseFileWatcher::ghostSignal(const QUrl &targetUrl, DBaseFileWatcher::SignalType2 signal, const QUrl &arg1, const QUrl &arg2)
 {
-    if (!signal)
+    qCDebug(logFileSystem, "Emitting ghost signal for target URL: %s, arg1: %s, arg2: %s", 
+            qPrintable(targetUrl.toString()), qPrintable(arg1.toString()), qPrintable(arg2.toString()));
+
+    if (!signal) {
+        qCWarning(logFileSystem, "Invalid signal pointer");
         return false;
+    }
 
     bool ok = false;
 
     for (DBaseFileWatcher *watcher : DBaseFileWatcherPrivate::watcherList) {
         if (watcher->fileUrl() == targetUrl) {
             ok = true;
+            qCDebug(logFileSystem, "Found matching watcher, emitting signal");
             (watcher->*signal)(arg1, arg2);
         }
     }
 
+    qCDebug(logFileSystem, "Ghost signal emission result: %s", ok ? "success" : "failed");
     return ok;
 }
 
@@ -163,6 +195,7 @@ DBaseFileWatcher::DBaseFileWatcher(DBaseFileWatcherPrivate &dd,
 {
     Q_ASSERT(url.isValid());
 
+    qCDebug(logFileSystem, "Creating DBaseFileWatcher for URL: %s", qPrintable(url.toString()));
     d_func()->url = url;
     DBaseFileWatcherPrivate::watcherList << this;
 }

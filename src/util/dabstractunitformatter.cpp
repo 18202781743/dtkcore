@@ -4,7 +4,11 @@
 
 #include "dabstractunitformatter.h"
 
+#include <QLoggingCategory>
+
 DCORE_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(logUtil, "dtk.core.util")
 
 /*!
   @~english
@@ -60,14 +64,18 @@ DCORE_BEGIN_NAMESPACE
   @brief Constructor of DAbstractUnitFormatter
 
  */
-DAbstractUnitFormatter::DAbstractUnitFormatter() {}
+DAbstractUnitFormatter::DAbstractUnitFormatter() {
+    qCDebug(logUtil) << "DAbstractUnitFormatter constructor called";
+}
 
 /*!
   @~english
   @brief Destructor of DAbstractUnitFormatter
 
  */
-DAbstractUnitFormatter::~DAbstractUnitFormatter() {}
+DAbstractUnitFormatter::~DAbstractUnitFormatter() {
+    qCDebug(logUtil) << "DAbstractUnitFormatter destructor called";
+}
 
 /*!
   @~english
@@ -82,11 +90,23 @@ DAbstractUnitFormatter::~DAbstractUnitFormatter() {}
  */
 qreal DAbstractUnitFormatter::formatAs(qreal value, int currentUnit,
                                        const int targetUnit) const {
-  while (currentUnit < targetUnit)
-    value /= unitConvertRate(currentUnit++);
-  while (currentUnit > targetUnit)
-    value *= unitConvertRate(--currentUnit);
+  qCDebug(logUtil) << "Formatting value:" << value << "from unit" << currentUnit << "to unit" << targetUnit;
+  
+  while (currentUnit < targetUnit) {
+    const auto rate = unitConvertRate(currentUnit);
+    value /= rate;
+    qCDebug(logUtil) << "Converting up: value=" << value << "rate=" << rate << "new_unit=" << currentUnit + 1;
+    currentUnit++;
+  }
+  
+  while (currentUnit > targetUnit) {
+    const auto rate = unitConvertRate(currentUnit - 1);
+    value *= rate;
+    qCDebug(logUtil) << "Converting down: value=" << value << "rate=" << rate << "new_unit=" << currentUnit - 1;
+    currentUnit--;
+  }
 
+  qCDebug(logUtil) << "Format result:" << value;
   return value;
 }
 
@@ -103,14 +123,23 @@ qreal DAbstractUnitFormatter::formatAs(qreal value, int currentUnit,
  */
 QPair<qreal, int> DAbstractUnitFormatter::format(const qreal value,
                                                  const int unit) const {
+  qCDebug(logUtil) << "Formatting value:" << value << "with unit:" << unit;
+  
   // can convert to smaller unit
-  if (unit > unitMin() && value < unitValueMin(unit))
-    return format(value * unitConvertRate(unit - 1), unit - 1);
+  if (unit > unitMin() && value < unitValueMin(unit)) {
+    const auto rate = unitConvertRate(unit - 1);
+    qCDebug(logUtil) << "Converting to smaller unit: value=" << value << "rate=" << rate << "new_unit=" << unit - 1;
+    return format(value * rate, unit - 1);
+  }
 
   // can convert to bigger unit
-  if (unit < unitMax() && value > unitValueMax(unit))
-    return format(value / unitConvertRate(unit), unit + 1);
+  if (unit < unitMax() && value > unitValueMax(unit)) {
+    const auto rate = unitConvertRate(unit);
+    qCDebug(logUtil) << "Converting to bigger unit: value=" << value << "rate=" << rate << "new_unit=" << unit + 1;
+    return format(value / rate, unit + 1);
+  }
 
+  qCDebug(logUtil) << "No conversion needed, returning: value=" << value << "unit=" << unit;
   return QPair<qreal, int>(value, unit);
 }
 
@@ -124,33 +153,48 @@ QPair<qreal, int> DAbstractUnitFormatter::format(const qreal value,
  */
 QList<QPair<qreal, int>>
 DAbstractUnitFormatter::formatAsUnitList(const qreal value, int unit) const {
-  if (qFuzzyIsNull(value))
+  qCDebug(logUtil) << "Formatting as unit list: value=" << value << "unit=" << unit;
+  
+  if (qFuzzyIsNull(value)) {
+    qCDebug(logUtil) << "Value is null, returning empty list";
     return QList<QPair<qreal, int>>();
+  }
 
   if (value < unitValueMin(unit) || unit == unitMin()) {
-    if (unit != unitMin())
-      return formatAsUnitList(value * unitConvertRate(unit - 1), unit - 1);
-    else
+    if (unit != unitMin()) {
+      const auto rate = unitConvertRate(unit - 1);
+      qCDebug(logUtil) << "Converting to smaller unit for list: value=" << value << "rate=" << rate << "new_unit=" << unit - 1;
+      return formatAsUnitList(value * rate, unit - 1);
+    } else {
+      qCDebug(logUtil) << "At minimum unit, returning single pair: value=" << value << "unit=" << unit;
       return std::move(QList<QPair<qreal, int>>()
                        << QPair<qreal, int>(value, unit));
+    }
   }
 
   ulong _value = ulong(value);
+  qCDebug(logUtil) << "Processing integer part:" << _value << "fractional part:" << value - _value;
   QList<QPair<qreal, int>> ret = formatAsUnitList(value - _value, unit);
 
   while (_value && unit != unitMax()) {
     const ulong rate = unitConvertRate(unit);
     const ulong r = _value % rate;
-    if (r)
+    if (r) {
+      qCDebug(logUtil) << "Adding remainder:" << r << "for unit:" << unit;
       ret.push_front(QPair<qreal, int>(r, unit));
+    }
 
     unit += 1;
     _value /= rate;
+    qCDebug(logUtil) << "Next iteration: _value=" << _value << "unit=" << unit;
   }
 
-  if (_value)
+  if (_value) {
+    qCDebug(logUtil) << "Adding final value:" << _value << "for unit:" << unit;
     ret.push_front(QPair<qreal, int>(_value, unit));
+  }
 
+  qCDebug(logUtil) << "Format as unit list result:" << ret.size() << "pairs";
   return ret;
 }
 

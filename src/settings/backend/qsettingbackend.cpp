@@ -7,13 +7,18 @@
 #include <QDebug>
 #include <QMutex>
 #include <QSettings>
+#include <QLoggingCategory>
 
 DCORE_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(logSettings)
 
 class QSettingBackendPrivate
 {
 public:
-    QSettingBackendPrivate(QSettingBackend *parent) : q_ptr(parent) {}
+    QSettingBackendPrivate(QSettingBackend *parent) : q_ptr(parent) {
+        qCDebug(logSettings, "QSettingBackendPrivate created");
+    }
 
     QSettings       *settings   = nullptr;
     QMutex          writeLock;
@@ -38,15 +43,17 @@ public:
 QSettingBackend::QSettingBackend(const QString &filepath, QObject *parent) :
     DSettingsBackend(parent), d_ptr(new QSettingBackendPrivate(this))
 {
+    qCDebug(logSettings, "QSettingBackend created with filepath: %s", qPrintable(filepath));
     Q_D(QSettingBackend);
 
     d->settings = new QSettings(filepath, QSettings::NativeFormat, this);
+    qCDebug(logSettings, "QSettings created with filename: %s", qPrintable(d->settings->fileName()));
     qDebug() << "create config" <<  d->settings->fileName();
 }
 
 QSettingBackend::~QSettingBackend()
 {
-
+    qCDebug(logSettings, "QSettingBackend destroyed");
 }
 
 /*!
@@ -57,7 +64,9 @@ QSettingBackend::~QSettingBackend()
 QStringList QSettingBackend::keys() const
 {
     Q_D(const QSettingBackend);
-    return d->settings->childGroups();
+    QStringList result = d->settings->childGroups();
+    qCDebug(logSettings, "Getting QSettings keys, count: %d", result.size());
+    return result;
 }
 
 /*!
@@ -69,9 +78,11 @@ QStringList QSettingBackend::keys() const
 QVariant QSettingBackend::getOption(const QString &key) const
 {
     Q_D(const QSettingBackend);
+    qCDebug(logSettings, "Getting QSettings option: %s", qPrintable(key));
     d->settings->beginGroup(key);
     auto value = d->settings->value("value");
     d->settings->endGroup();
+    qCDebug(logSettings, "QSettings option value: %s", qPrintable(value.toString()));
     return value;
 }
 
@@ -84,25 +95,27 @@ QVariant QSettingBackend::getOption(const QString &key) const
 void QSettingBackend::doSetOption(const QString &key, const QVariant &value)
 {
     Q_D(QSettingBackend);
+    qCDebug(logSettings, "Setting QSettings option: %s = %s", qPrintable(key), qPrintable(value.toString()));
     d->writeLock.lock();
     d->settings->beginGroup(key);
-    auto oldValue = d->settings->value("value");
-    if (oldValue != value) {
-        d->settings->setValue("value", value);
-    }
+    d->settings->setValue("value", value);
     d->settings->endGroup();
-    d->settings->sync();
     d->writeLock.unlock();
+    qCDebug(logSettings, "QSettings option set successfully");
 }
 
 /*!
 @~english
-  @brief Trigger DSettings to save option value to QSettings
+  @brief Sync data to QSettings
  */
 void QSettingBackend::doSync()
 {
     Q_D(QSettingBackend);
+    qCDebug(logSettings, "Syncing QSettings data");
+    d->writeLock.lock();
     d->settings->sync();
+    d->writeLock.unlock();
+    qCDebug(logSettings, "QSettings sync completed");
 }
 
 

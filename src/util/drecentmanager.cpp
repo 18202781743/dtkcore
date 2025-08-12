@@ -15,8 +15,11 @@
 #include <QStringConverter>
 #include <QTimeZone>
 #endif
+#include <QLoggingCategory>
 
 DCORE_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(logUtil, "dtk.core.util")
 
 #define RECENT_PATH QDir::homePath() + "/.local/share/recently-used.xbel"
 
@@ -61,11 +64,15 @@ DCORE_BEGIN_NAMESPACE
 
 bool DRecentManager::addItem(const QString &uri, DRecentData &data)
 {
+    qCDebug(logUtil) << "Adding item to recent list: uri=" << uri << "appName=" << data.appName << "appExec=" << data.appExec;
+    
     if (!QFileInfo(uri).exists() || uri.isEmpty()) {
+        qCWarning(logUtil) << "File does not exist or URI is empty:" << uri;
         return false;
     }
 
     QFile file(RECENT_PATH);
+    qCDebug(logUtil) << "Opening recent file:" << RECENT_PATH;
     file.open(QIODevice::ReadWrite | QIODevice::Text);
 
 #if QT_VERSION >= QT_VERSION_CHECK(6,0,0)
@@ -73,9 +80,11 @@ bool DRecentManager::addItem(const QString &uri, DRecentData &data)
 #else
     QString dateTime = QDateTime::currentDateTime().toTimeSpec(Qt::OffsetFromUTC).toString(Qt::ISODate);
 #endif
+    qCDebug(logUtil) << "Current datetime:" << dateTime;
     QDomDocument doc;
 
     if (!doc.setContent(&file)) {
+        qCDebug(logUtil) << "Creating new XML document";
         doc.clear();
         doc.appendChild(doc.createProcessingInstruction("xml","version=\'1.0\' encoding=\'utf-8\'"));
         QDomElement xbelEle = doc.createElement("xbel");
@@ -83,19 +92,26 @@ bool DRecentManager::addItem(const QString &uri, DRecentData &data)
         xbelEle.setAttribute("version", "1.0");
         xbelEle.setAttribute("xmlns:bookmark", "http://www.freedesktop.org/standards/desktop-bookmarks");
         doc.appendChild(xbelEle);
+    } else {
+        qCDebug(logUtil) << "Loaded existing XML document";
     }
     file.close();
 
     // need to add file:// protocol.
     QUrl url = QUrl::fromLocalFile(uri);
+    qCDebug(logUtil) << "Converted URI to URL:" << url.toString();
 
     // get the MimeType name of the file.
     if (data.mimeType.isEmpty()) {
         data.mimeType = QMimeDatabase().mimeTypeForFile(uri).name();
+        qCDebug(logUtil) << "Detected MIME type:" << data.mimeType;
+    } else {
+        qCDebug(logUtil) << "Using provided MIME type:" << data.mimeType;
     }
 
     QDomElement rootEle = doc.documentElement();
     QDomNodeList nodeList = rootEle.elementsByTagName("bookmark");
+    qCDebug(logUtil) << "Found" << nodeList.size() << "existing bookmarks";
     QDomElement bookmarkEle;
     bool isFound = false;
 
@@ -104,15 +120,22 @@ bool DRecentManager::addItem(const QString &uri, DRecentData &data)
         const QString fileUrl = nodeList.at(i).toElement().attribute("href");
 
         if (fileUrl == url.toEncoded(QUrl::FullyDecoded)) {
+            qCDebug(logUtil) << "Found existing bookmark at index" << i;
             bookmarkEle = nodeList.at(i).toElement();
             isFound = true;
             break;
         }
     }
+    
+    if (!isFound) {
+        qCDebug(logUtil) << "No existing bookmark found, will create new one";
+    }
 
     // update element content.
     if (isFound) {
+        qCDebug(logUtil) << "Updating existing bookmark";
         QDomNodeList appList = bookmarkEle.elementsByTagName("bookmark:application");
+        qCDebug(logUtil) << "Found" << appList.size() << "applications for this bookmark";
         QDomElement appEle;
         bool appExists = false;
 
@@ -121,6 +144,7 @@ bool DRecentManager::addItem(const QString &uri, DRecentData &data)
 
             if (appEle.attribute("name") == data.appName &&
                 appEle.attribute("exec") == data.appExec) {
+                qCDebug(logUtil) << "Found existing application at index" << i;
                 appExists = true;
                 break;
             }
@@ -128,11 +152,13 @@ bool DRecentManager::addItem(const QString &uri, DRecentData &data)
 
         if (appExists) {
             int count = appEle.attribute("count").toInt() + 1;
+            qCDebug(logUtil) << "Updating existing application, new count:" << count;
             bookmarkEle.setAttribute("modified", dateTime);
             bookmarkEle.setAttribute("visited", dateTime);
             appEle.setAttribute("modified", dateTime);
             appEle.setAttribute("count", QString::number(count));
         } else {
+            qCDebug(logUtil) << "Adding new application to existing bookmark";
             QDomNode appsNode = bookmarkEle.elementsByTagName("bookmark:applications").at(0);
 
             appEle = doc.createElement("bookmark:application");
@@ -145,6 +171,7 @@ bool DRecentManager::addItem(const QString &uri, DRecentData &data)
     }
     // add new elements if they don't exist.
     else {
+        qCDebug(logUtil) << "Creating new bookmark element";
         QDomElement bookmarkEle, infoEle, metadataEle, mimeEle, appsEle, appChildEle;
         QString hrefStr = url.toEncoded(QUrl::FullyEncoded);
 
@@ -177,12 +204,16 @@ bool DRecentManager::addItem(const QString &uri, DRecentData &data)
 
         QDomNode result = rootEle.appendChild(bookmarkEle);
         if (result.isNull()) {
+            qCWarning(logUtil) << "Failed to append bookmark element to document";
             return false;
         }
+        qCDebug(logUtil) << "Successfully created new bookmark element";
     }
 
     // write to file.
+    qCDebug(logUtil) << "Writing updated document to file";
     if (!file.open(QIODevice::WriteOnly)) {
+        qCWarning(logUtil) << "Failed to open file for writing:" << RECENT_PATH;
         return false;
     }
 
@@ -196,6 +227,7 @@ bool DRecentManager::addItem(const QString &uri, DRecentData &data)
     out.flush();
     file.close();
 
+    qCDebug(logUtil) << "Successfully added item to recent list";
     return true;
 }
 
@@ -206,6 +238,7 @@ bool DRecentManager::addItem(const QString &uri, DRecentData &data)
 
 void DRecentManager::removeItem(const QString &target)
 {
+    qCDebug(logUtil) << "Removing single item:" << target;
     removeItems(QStringList() << target);
 }
 
@@ -216,14 +249,17 @@ void DRecentManager::removeItem(const QString &target)
 
 void DRecentManager::removeItems(const QStringList &list)
 {
+    qCDebug(logUtil) << "Removing" << list.size() << "items from recent list";
     QFile file(RECENT_PATH);
 
     if (!file.open(QIODevice::ReadOnly)) {
+        qCWarning(logUtil, "Failed to open recent file for reading: %s", qPrintable(RECENT_PATH));
         return;
     }
 
     QDomDocument doc;
     if (!doc.setContent(&file)) {
+        qCWarning(logUtil, "Failed to parse XML content from recent file");
         file.close();
         return;
     }
@@ -231,19 +267,23 @@ void DRecentManager::removeItems(const QStringList &list)
 
     QDomElement rootEle = doc.documentElement();
     QDomNodeList nodeList = rootEle.elementsByTagName("bookmark");
+    qCDebug(logUtil) << "Found" << nodeList.count() << "bookmarks to check";
 
     for (int i = 0; i < nodeList.count(); ) {
         const QString fileUrl = nodeList.at(i).toElement().attribute("href");
 
         if (list.contains(QUrl::fromPercentEncoding(fileUrl.toLatin1())) ||
             list.contains(QUrl(fileUrl).toEncoded(QUrl::FullyDecoded))) {
+            qCDebug(logUtil) << "Removing bookmark at index" << i << ":" << fileUrl;
             rootEle.removeChild(nodeList.at(i));
         } else {
             ++i;
         }
     }
 
+    qCDebug(logUtil) << "Writing updated document after removal";
     if (!file.open(QIODevice::WriteOnly)) {
+        qCWarning(logUtil, "Failed to open file for writing after removal: %s", qPrintable(RECENT_PATH));
         return;
     }
 
@@ -257,6 +297,7 @@ void DRecentManager::removeItems(const QStringList &list)
     out.flush();
     file.close();
 
+    qCDebug(logUtil) << "Successfully removed items from recent list";
     return;
 }
 

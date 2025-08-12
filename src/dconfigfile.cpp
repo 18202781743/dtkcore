@@ -39,25 +39,36 @@ Q_LOGGING_CATEGORY(cfLog, "dtk.dsg.config");
 // subpath must be a subdirectory of the dir.
 inline static bool subpathIsValid(const QString &subpath, const QDir &dir)
 {
-    if (subpath.isEmpty())
+    qCDebug(cfLog) << "Checking if subpath is valid:" << subpath << "in dir:" << dir.absolutePath();
+    if (subpath.isEmpty()) {
+        qCDebug(cfLog) << "Subpath is empty, returning true";
         return true;
+    }
 
     const QDir subDir(dir.filePath(subpath.mid(1)));
-    return subDir.absolutePath().startsWith(dir.absolutePath());
+    auto result = subDir.absolutePath().startsWith(dir.absolutePath());
+    qCDebug(cfLog) << "Subpath validation result:" << result;
+    return result;
 }
 // name must be a valid filename.
 inline static bool isValidFilename(const QString& filename)
 {
+    qCDebug(cfLog) << "Checking if filename is valid:" << filename;
     static const QRegularExpression regex("^[\\w\\-\\.\\ ]+$");
     QRegularExpressionMatch match = regex.match(filename);
-    return match.hasMatch();
+    auto result = match.hasMatch();
+    qCDebug(cfLog) << "Filename validation result:" << result;
+    return result;
 }
 // AppId don't contain ' ', but it can be empty.
 inline static bool isValidAppId(const QString& appId)
 {
+    qCDebug(cfLog) << "Checking if appId is valid:" << appId;
     static const QRegularExpression regex("^[\\w\\-\\.]*$");
     QRegularExpressionMatch match = regex.match(appId);
-    return match.hasMatch();
+    auto result = match.hasMatch();
+    qCDebug(cfLog) << "AppId validation result:" << result;
+    return result;
 }
 /*!
 @~english
@@ -71,12 +82,11 @@ inline static bool isValidAppId(const QString& appId)
  */
 inline QString getFile(const QString &baseDir, const QString &subpath, const QString &name,
                        bool canFallbackUp = true) {
-    qCDebug(cfLog, "load json file from base dir:\"%s\", subpath = \"%s\", file name =\"%s\".",
-            qPrintable(baseDir), qPrintable(subpath), qPrintable(name));
+    qCDebug(cfLog) << "Loading json file from base dir:" << baseDir << "subpath:" << subpath << "file name:" << name;
 
     const QDir base_dir(baseDir);
     if (!subpathIsValid(subpath, base_dir)) {
-        qCDebug(cfLog, "subpath is invalid in the base dir:\"%s\", subpath:\"%s\".", qPrintable(baseDir), qPrintable(subpath));
+        qCWarning(cfLog) << "Subpath is invalid in the base dir:" << baseDir << "subpath:" << subpath;
         return QString();
     }
     QDir target_dir = base_dir;
@@ -85,35 +95,49 @@ inline QString getFile(const QString &baseDir, const QString &subpath, const QSt
         target_dir.cd(subpath.mid(1));
 
     do {
-        qCDebug(cfLog, "load json file from: \"%s\"", qPrintable(target_dir.path()));
+        qCDebug(cfLog) << "Loading json file from:" << target_dir.path();
 
-        if (QFile::exists(target_dir.filePath(name))) {
-            return target_dir.filePath(name);
+        const auto &filePath = target_dir.filePath(name);
+        qCDebug(cfLog) << "Checking file:" << filePath;
+        
+        if (QFile::exists(filePath)) {
+            qCDebug(cfLog) << "Found file:" << filePath;
+            return filePath;
         }
 
-        if (base_dir == target_dir)
+        if (base_dir == target_dir) {
+            qCDebug(cfLog) << "Cannot fallback up, returning empty string";
             break;
+        }
+
+        qCDebug(cfLog) << "File not found, trying parent directory";
     } while (canFallbackUp && target_dir.cdUp());
 
+    qCDebug(cfLog) << "No file found in any directory";
     return QString();
 }
 
 inline QFile *loadFile(const QString &baseDir, const QString &subpath, const QString &name,
                        bool canFallbackUp = true)
 {
+    qCDebug(cfLog) << "Loading file from baseDir:" << baseDir << "subpath:" << subpath << "name:" << name;
     QString path = getFile(baseDir, subpath, name, canFallbackUp);
     if (!path.isEmpty()) {
+        qCDebug(cfLog) << "File found, creating QFile:" << path;
         return new QFile(path);
     }
+    qCDebug(cfLog) << "No file found, returning nullptr";
     return nullptr;
 }
 
 static QJsonDocument loadJsonFile(QIODevice *data)
 {
+    qCDebug(cfLog) << "Loading JSON file from device";
     if (!data->open(QIODevice::ReadOnly)) {
         if (auto file = qobject_cast<QFile*>(data)) {
-            qCDebug(cfLog, "Falied on open file: \"%s\", error message: \"%s\"",
-                    qPrintable(file->fileName()), qPrintable(file->errorString()));
+            qCWarning(cfLog) << "Failed to open file:" << file->fileName() << "error:" << file->errorString();
+        } else {
+            qCWarning(cfLog) << "Failed to open device for reading";
         }
         return QJsonDocument();
     }
@@ -123,40 +147,49 @@ static QJsonDocument loadJsonFile(QIODevice *data)
     data->close();
 
     if (error.error != QJsonParseError::NoError) {
-        qCWarning(cfLog, "%s", qPrintable(error.errorString()));
+        qCWarning(cfLog) << "JSON parse error:" << error.errorString();
         return QJsonDocument();
     }
 
+    qCDebug(cfLog) << "JSON file loaded successfully";
     return document;
 }
 
 static DConfigFile::Version parseVersion(const QJsonObject &obj) {
+    qCDebug(cfLog) << "Parsing version from JSON object";
     DConfigFile::Version version {0, 0};
     const QString &verStr = obj[QLatin1String("version")].toString();
 
     if (verStr.isEmpty()) {
+        qCDebug(cfLog) << "Version string is empty, returning default version";
         return version;
     }
 
     const QStringList &items = verStr.split(QLatin1Char('.'));
 
-    if (items.size() != 2)
+    if (items.size() != 2) {
+        qCWarning(cfLog) << "Invalid version format:" << verStr;
         return version;
+    }
 
     bool ok = false;
     quint16 major = items.first().toUShort(&ok);
 
-    if (!ok)
+    if (!ok) {
+        qCWarning(cfLog) << "Failed to parse major version:" << items.first();
         return version;
+    }
 
     quint16 minor = items.last().toUShort(&ok);
 
-    if (!ok)
+    if (!ok) {
+        qCWarning(cfLog) << "Failed to parse minor version:" << items.last();
         return version;
+    }
 
     version.major = major;
     version.minor = minor;
-
+    qCDebug(cfLog) << "Parsed version:" << version.major << "." << version.minor;
     return version;
 }
 
@@ -167,28 +200,50 @@ static DConfigFile::Version parseVersion(const QJsonObject &obj) {
 static const uint InvalidUID = 0xFFFF;
 
 inline static bool checkMagic(const QJsonObject &obj, QLatin1String request) {
-    return obj[QLatin1String("magic")].toString() == request;
+    qCDebug(cfLog) << "Checking magic:" << request;
+    auto result = obj[QLatin1String("magic")].toString() == request;
+    qCDebug(cfLog) << "Magic check result:" << result;
+    return result;
 }
 
 inline static bool versionIsValid(const DConfigFile::Version &v) {
-    return v.major > 0 || v.minor > 0;
+    auto valid = v.major > 0 || v.minor > 0;
+    qCDebug(cfLog) << "Version validation:" << v.major << "." << v.minor << "->" << (valid ? "valid" : "invalid");
+    return valid;
 }
 
 inline static bool checkVersion(const QJsonObject &obj, const DConfigFile::Version &request) {
+    qCDebug(cfLog) << "Checking version compatibility with request:" << request.major << "." << request.minor;
     const DConfigFile::Version &v = parseVersion(obj);
-    return versionIsValid(v) && v.major == request.major;
+    auto result = versionIsValid(v) && v.major == request.major;
+    qCDebug(cfLog) << "Version check result:" << (result ? "compatible" : "incompatible");
+    return result;
 }
 
 inline void overrideValue(QLatin1String subkey, const QJsonValue &from, QVariantHash &target) {
+    qCDebug(cfLog) << "Overriding value for subkey:" << subkey;
     const QJsonValue &v = from[subkey];
 
-    if (!v.isUndefined())
+    if (!v.isUndefined()) {
+        qCDebug(cfLog) << "Value to override:" << v;
         target[subkey] = v.toVariant();
+        qCDebug(cfLog) << "Value overridden successfully";
+    } else {
+        qCDebug(cfLog) << "No value to override for subkey:" << subkey;
+    }
 }
 
 inline static QString getUserName(const uint uid) {
+    qCDebug(cfLog) << "Getting username for UID:" << uid;
     passwd *pw = getpwuid(uid);
-    return pw ? QString::fromLocal8Bit(pw->pw_name) : QString();
+    if (pw) {
+        const auto &username = QString::fromLocal8Bit(pw->pw_name);
+        qCDebug(cfLog) << "Found username:" << username;
+        return username;
+    } else {
+        qCWarning(cfLog) << "Failed to get username for UID:" << uid;
+        return QString();
+    }
 }
 
 /*!
@@ -246,30 +301,42 @@ inline static QString getUserName(const uint uid) {
     When writing to this profile, if an incompatible version is encountered, the current contents need to be cleared before writing, and this field needs to be updated with each write
 */
 
-DConfigMeta::~DConfigMeta() {}
+DConfigMeta::~DConfigMeta() {
+    qCDebug(cfLog) << "DConfigMeta destroyed";
+}
 
 QStringList DConfigMeta::genericMetaDirs(const QString &localPrefix)
 {
+    qCDebug(cfLog) << "Getting generic meta directories for prefix:" << localPrefix;
     QStringList paths;
     // lower priority is higher.
     for (auto item: DStandardPaths::paths(DStandardPaths::DSG::DataDir)) {
-        paths.prepend(QDir::cleanPath(QString("%1/%2/configs").arg(localPrefix, item)));
+        QString path = QDir::cleanPath(QString("%1/%2/configs").arg(localPrefix, item));
+        paths.prepend(path);
+        qCDebug(cfLog) << "Added meta directory:" << path;
     }
+    qCDebug(cfLog) << "Found" << paths.size() << "generic meta directories";
     return paths;
 }
 
 QStringList DConfigMeta::applicationMetaDirs(const QString &localPrefix, const QString &appId)
 {
+    qCDebug(cfLog) << "Getting application meta directories for prefix:" << localPrefix << "appId:" << appId;
     QStringList paths;
     const auto &dataPaths = genericMetaDirs(localPrefix);
     paths.reserve(dataPaths.size());
     for (auto item : dataPaths) {
-        paths << QString("%1/%2").arg(item, appId);
+        const auto &path = QString("%1/%2").arg(item, appId);
+        paths << path;
+        qCDebug(cfLog) << "Added application meta directory:" << path;
     }
+    qCDebug(cfLog) << "Found" << paths.size() << "application meta directories";
     return paths;
 }
 
-Dtk::Core::DConfigCache::~DConfigCache() {}
+Dtk::Core::DConfigCache::~DConfigCache() {
+    qCDebug(cfLog) << "DConfigCache destroyed";
+}
 
 struct DConfigKey {
     DConfigKey(const QString &aappId, const QString &afileName, const QString &asubpath)
@@ -277,15 +344,18 @@ struct DConfigKey {
           fileName(afileName),
           subpath(asubpath)
     {
+        qCDebug(cfLog) << "DConfigKey created: appId=" << appId << "fileName=" << fileName << "subpath=" << subpath;
     }
 
     explicit DConfigKey(const DConfigKey &src)
         : DConfigKey(src.appId, src.fileName, src.subpath)
     {
+        qCDebug(cfLog) << "DConfigKey copied from source";
     }
 
     DConfigKey &operator = (const DConfigKey &src)
     {
+        qCDebug(cfLog) << "DConfigKey assignment operator called";
         this->appId = src.appId;
         this->fileName = src.fileName;
         this->subpath = src.subpath;
@@ -299,52 +369,65 @@ struct DConfigKey {
 
 class Q_DECL_HIDDEN DConfigInfo {
 public:
-    DConfigInfo()
-    {
-
+    DConfigInfo() {
+        qCDebug(cfLog) << "DConfigInfo created";
     }
+
     DConfigInfo(const DConfigInfo &other)
     {
         this->values = other.values;
+        qCDebug(cfLog) << "DConfigInfo copied from other";
     }
     DConfigInfo operator = (const DConfigInfo &other)
     {
         this->values = other.values;
+        qCDebug(cfLog) << "DConfigInfo assigned from other";
         return *this;
     }
+
     inline static bool checkSerial(const int metaSerial, const int cacheSerial)
     {
-        if (cacheSerial < 0)
+        qCDebug(cfLog) << "Checking serial: meta=" << metaSerial << "cache=" << cacheSerial;
+        if (cacheSerial < 0) {
+            qCDebug(cfLog) << "Cache serial is invalid, returning true";
             return true;
-        if (metaSerial >= 0 && metaSerial == cacheSerial)
+        }
+        if (metaSerial >= 0 && metaSerial == cacheSerial) {
+            qCDebug(cfLog) << "Serial is valid, returning true";
             return true;
+        }
+        qCDebug(cfLog) << "Serial is invalid, returning false";
         return false;
     }
 
     DConfigFile::Visibility visibility(const QString &key) const
     {
-        DConfigFile::Visibility p = DConfigFile::Private;
-        const auto &tmp = values[key][QLatin1String("visibility")].toString();
-        if (tmp == QLatin1String("public"))
-            p = DConfigFile::Public;
-
-        return p;
+        qCDebug(cfLog) << "Getting visibility for key:" << key;
+        const QVariantHash &value = values.value(key).toHash();
+        DConfigFile::Visibility vis = static_cast<DConfigFile::Visibility>(value.value("visibility").toInt());
+        qCDebug(cfLog) << "Visibility:" << vis;
+        return vis;
     }
 
     DConfigFile::Permissions permissions(const QString &key) const
     {
+        qCDebug(cfLog) << "Getting permissions for key:" << key;
         DConfigFile::Permissions p = DConfigFile::ReadOnly;
         const auto &tmp = values[key][QLatin1String("permissions")].toString();
-        if (tmp == QLatin1String("readwrite"))
+        if (tmp == QLatin1String("readwrite")) {
             p = DConfigFile::ReadWrite;
-
-        return p;
+        }
+        qCDebug(cfLog) << "Permissions:" << p;
+        return p;   
     }
 
     DConfigFile::Flags flags(const QString &key) const
     {
-        DConfigFile::Flags flags = {};
-        const auto &tmp = values[key][QLatin1String("flags")];
+        qCDebug(cfLog) << "Getting flags for key:" << key;
+        const QVariantHash &value = values.value(key).toHash();
+        const QVariant &tmp = value.value("flags");
+
+        DConfigFile::Flags flags = DConfigFile::NoOverride;
         Q_FOREACH(const QString &flag, tmp.toStringList()) {
             if (flag == QLatin1String("nooverride")) {
                 flags |= DConfigFile::NoOverride;
@@ -354,31 +437,38 @@ public:
                 flags |= DConfigFile::UserPublic;
             }
         }
-
+        qCDebug(cfLog) << "Flags:" << flags;
         return flags;
     }
 
     QString displayName(const QString &key, const QLocale &locale) const
     {
-        if (locale == QLocale::AnyLanguage)
+        if (locale == QLocale::AnyLanguage) {
+            qCDebug(cfLog) << "Getting display name for key:" << key << "locale: AnyLanguage";
             return values[key][QLatin1String("name")].toString();
-
+        }
+        qCDebug(cfLog) << "Getting display name for key:" << key << "locale:" << locale.name();
         return values[key].value(QString("name[%1]")
                                  .arg(locale.name())).toString();
     }
 
     QString description(const QString &key, const QLocale &locale) const
     {
-        if (locale == QLocale::AnyLanguage)
+        if (locale == QLocale::AnyLanguage) {
+            qCDebug(cfLog) << "Getting description for key:" << key << "locale: AnyLanguage";
             return values[key][QLatin1String("description")].toString();
-
+        }
+        qCDebug(cfLog) << "Getting description for key:" << key << "locale:" << locale.name();
         return values[key].value(QString("description[%1]")
                                  .arg(locale.name())).toString();
     }
 
     inline QVariant value(const QString &key) const
     {
-        return values[key][QLatin1String("value")];
+        qCDebug(cfLog, "Getting value for key: %s", qPrintable(key));
+        const auto &result = values.value(key).toHash().value("value");
+        qCDebug(cfLog) << "Value:" << result;
+        return result;
     }
 
     inline int serial(const QString &key) const
@@ -386,80 +476,105 @@ public:
         bool status = false;
         const int tmp = values[key][QLatin1String("serial")].toInt(&status);
         if (status) {
+            qCDebug(cfLog, "Serial: %d", tmp);
             return tmp;
         }
+        qCDebug(cfLog, "Serial is invalid, returning -1");
         return -1;
     }
 
     inline void setValue(const QString &key, const QVariant &value)
     {
+        qCDebug(cfLog) << "Value set for key:" << key << "to" << value;
         values[key]["value"] = value;
     }
 
     inline void setSerial(const QString &key, const int &value)
     {
-        values[key]["serial"] = value;
+        qCDebug(cfLog) << "Setting serial for key:" << key << "=" << value;
+        QVariantHash &hash = values[key].toHash();
+        hash["serial"] = value;
     }
 
     inline void setTime(const QString &key, const QString &value)
     {
-        values[key]["time"] = value;
+        qCDebug(cfLog) << "Setting time for key:" << key << "=" << value;
+        QVariantHash &hash = values[key].toHash();
+        hash["time"] = value;
     }
 
     inline void setUser(const QString &key, const uint &value)
     {
-        values[key]["user"] = getUserName(value);
+        qCDebug(cfLog, "Setting user for key: %s = %u", qPrintable(key), value);
+        const auto &userName = getUserName(value);
+        QVariantHash &hash = values[key].toHash();
+        hash["user"] = userName;
+        qCDebug(cfLog) << "User set for key:" << key << "to" << userName;
     }
 
     inline void setAppId(const QString &key, const QString &value)
     {
-        values[key]["appid"] = value;
+        qCDebug(cfLog) << "Setting appId for key:" << key << "=" << value;
+        QVariantHash &hash = values[key].toHash();
+        hash["appid"] = value;
     }
 
     inline QStringList keyList() const
     {
-        return values.keys();
+        QStringList keys = values.keys();
+        qCDebug(cfLog) << "Found" << keys.size() << "keys";
+        return keys;
     }
 
     inline bool contains(const QString &key) const
     {
-        return values.contains(key);
+        bool result = values.contains(key);
+        qCDebug(cfLog) << "Contains result:" << result;
+        return result;
     }
 
     inline void remove(const QString &key)
     {
+        qCDebug(cfLog) << "Removing key:" << key;
         values.remove(key);
     }
 
     inline bool update(const QString &key, const QVariantHash &value)
     {
+        qCDebug(cfLog) << "Updating key:" << key;
         if (!value.contains("value")) {
+            qCDebug(cfLog) << "Value does not contain 'value', returning false";
             return false;
         }
         values[key] = value;
+        qCDebug(cfLog) << "Key updated successfully";
         return true;
     }
 
     inline bool updateValue(const QString &key, const QJsonValue &value)
     {
+        qCDebug(cfLog) << "Updating value for key:" << key;
         return overrideValue(key, "value", value);
     }
 
     inline void updateSerial(const QString &key, const QJsonValue &value)
     {
+        qCDebug(cfLog) << "Updating serial for key:" << key;
         overrideValue(key, "serial", value);
     }
 
     inline void updatePermissions(const QString &key, const QJsonValue &value)
     {
+        qCDebug(cfLog) << "Updating permissions for key:" << key;
         overrideValue(key, "permissions", value);
     }
 
     QJsonObject content() const
     {
+        qCDebug(cfLog) << "Getting content as JSON object";
         QJsonObject contents;
-        for (auto i = values.constBegin(); i != values.constEnd(); ++i) {
-            contents[i.key()] = QJsonObject::fromVariantHash(i.value());
+        for (auto it = values.begin(); it != values.end(); ++it) {
+            contents[it.key()] = QJsonValue::fromVariant(it.value());
         }
         return contents;
     }
@@ -468,6 +583,7 @@ private:
         const QJsonValue &v = from[subkey];
 
         if (v.isUndefined()) {
+            qCDebug(cfLog) << "Value is undefined, returning false" << key << subkey;
             return false;
         }
 
@@ -627,48 +743,59 @@ public:
 
     inline virtual QStringList keyList() const override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::keyList() called");
         return values.keyList();
     }
     inline virtual DConfigFile::Flags flags(const QString &key) const override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::flags() called for key: %s", qPrintable(key));
         return values.flags(key);
     }
     inline virtual DConfigFile::Permissions permissions(const QString &key) const override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::permissions() called for key: %s", qPrintable(key));
         return values.permissions(key);
     }
     inline virtual DConfigFile::Visibility visibility(const QString &key) const override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::visibility() called for key: %s", qPrintable(key));
         return values.visibility(key);
     }
     inline virtual int serial(const QString &key) const override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::serial() called for key: %s", qPrintable(key));
         return values.serial(key);
     }
     inline virtual QString description(const QString &key, const QLocale &locale) override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::description() called for key: %s, locale: %s", qPrintable(key), qPrintable(locale.name()));
         return values.description(key, locale);
     }
     virtual DConfigFile::Version version() const override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::version() called");
         return m_version;
     }
     inline virtual void setVersion(quint16 major, quint16 minor) override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::setVersion() called: major=%d, minor=%d", major, minor);
         m_version.major = major;
         m_version.minor = minor;
     }
     inline virtual QString displayName(const QString &key, const QLocale &locale) override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::displayName() called for key: %s, locale: %s", qPrintable(key), qPrintable(locale.name()));
         return values.displayName(key, locale);
     }
     inline virtual QVariant value(const QString &key) const override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::value() called for key: %s", qPrintable(key));
         return values.value(key);
     }
 
     QString metaPath(const QString &localPrefix, bool *useAppId) const override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::metaPath() called for localPrefix: %s", qPrintable(localPrefix));
         bool useAppIdForOverride = true;
 
         QString path;
@@ -690,12 +817,15 @@ public:
         }
         if (useAppId) {
             *useAppId = useAppIdForOverride;
+            qCDebug(cfLog, "DConfigMetaImpl::metaPath() useAppIdForOverride: %s", useAppIdForOverride ? "true" : "false");
         }
+        qCDebug(cfLog, "DConfigMetaImpl::metaPath() returning path: %s", qPrintable(path));
         return path;
     }
 
     bool load(const QString &localPrefix) override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::load() called for localPrefix: %s", qPrintable(localPrefix));
         if (!isValidAppId(configKey.appId)) {
             qCWarning(cfLog, "AppId is invalid, appId=%s", qPrintable(configKey.appId));
             return false;
@@ -727,6 +857,7 @@ public:
 
     bool load(QIODevice *meta, const QList<QIODevice*> &overrides) override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::load() called for meta and overrides");
         {
             const QJsonDocument &doc = loadJsonFile(meta);
             if (!doc.isObject())
@@ -815,6 +946,7 @@ public:
         @brief 获得前缀为 \a prefix 目录的应用或公共库的所有覆盖机制目录,越后优先级越高
      */
     inline QStringList overrideDirs(const QString & prefix, bool useAppId) const {
+        qCDebug(cfLog, "DConfigMetaImpl::overrideDirs() called for prefix: %s, useAppId: %d", qPrintable(prefix), useAppId);
         const QString &path2 = QString("%1/etc/dsg/configs/overrides/%2/%3")
                 .arg(prefix, useAppId ? configKey.appId : QString(), configKey.fileName);
 
@@ -833,6 +965,7 @@ public:
 
     inline QStringList allOverrideDirs(const bool useAppId, const QString &prefix) const override
     {
+        qCDebug(cfLog, "DConfigMetaImpl::allOverrideDirs() called for useAppId: %d, prefix: %s", useAppId, qPrintable(prefix));
         QStringList dirs;
         // 只有当允许不使用 appid 时才能回退到通用目录
         if (!useAppId) {
@@ -854,6 +987,7 @@ public:
      */
     QList<QIODevice *> loadOverrides(const QString &prefix, bool useAppId) const
     {
+        qCDebug(cfLog, "DConfigMetaImpl::loadOverrides() called for prefix: %s, useAppId: %d", qPrintable(prefix), useAppId);
         auto filters = QDir::Files | QDir::NoDotAndDotDot | QDir::Readable;
         const QStringList nameFilters {"*" + FILE_SUFFIX};
 
@@ -1024,21 +1158,25 @@ public:
 public:
     inline virtual int serial(const QString &key) const override
     {
+        qCDebug(cfLog, "DConfigCacheImpl::serial() called for key: %s", qPrintable(key));
         return values.serial(key);
     }
 
     inline virtual uint uid() const override
     {
+        qCDebug(cfLog, "DConfigCacheImpl::uid() called");
         return userid;
     }
 
     inline virtual QStringList keyList() const override
     {
+        qCDebug(cfLog, "DConfigCacheImpl::keyList() called");
         return values.keyList();
     }
 
     inline QString applicationCacheDir(const QString &localPrefix, const QString &suffix) const
     {
+        qCDebug(cfLog, "DConfigCacheImpl::applicationCacheDir() called for localPrefix: %s, suffix: %s", qPrintable(localPrefix), qPrintable(suffix));
         QString prefix(cachePrefix);
         if (prefix.isEmpty()) {
             // If target user is current user or system user, then get the home path by environment variable first.
@@ -1060,15 +1198,18 @@ public:
 
     inline QString applicationCacheDir(const QString &localPrefix) const
     {
+        qCDebug(cfLog, "DConfigCacheImpl::applicationCacheDir() called for localPrefix: %s", qPrintable(localPrefix));
         return applicationCacheDir(localPrefix, QString());
     }
 
     inline QString cacheDir(const QString &basePath) {
+        qCDebug(cfLog, "DConfigCacheImpl::cacheDir() called for basePath: %s", qPrintable(basePath));
         QDir dir(basePath + configKey.subpath);
         return dir.filePath(configKey.fileName + FILE_SUFFIX);
     }
 
     inline QString globalCacheDir(const QString &localPrefix) const {
+        qCDebug(cfLog, "DConfigCacheImpl::globalCacheDir() called for localPrefix: %s", qPrintable(localPrefix));
         QString prefix(cachePrefix);
         if (prefix.isEmpty()) {
             // TODO `DSG_APP_DATA` is not set and `appid` is not captured in `DStandardPaths::path`.
@@ -1094,14 +1235,18 @@ public:
 
     QString getCacheDir(const QString &localPrefix = QString())
     {
+        qCDebug(cfLog, "DConfigCacheImpl::getCacheDir() called for localPrefix: %s", qPrintable(localPrefix));
         if (isGlobal()) {
             const QString &dir = globalCacheDir(localPrefix);
-            if (!dir.isEmpty())
-                return dir;
-
+            if (!dir.isEmpty()) {
+                qCDebug(cfLog, "DConfigCacheImpl::getCacheDir() returning global cache directory: %s", qPrintable(dir));
+                return dir; 
+            }
+            qCDebug(cfLog, "DConfigCacheImpl::getCacheDir() global cache directory is empty, falling back to application cache directory");
             // Not supported the global config, fallback the config cache data to user directory.
             return applicationCacheDir(localPrefix, "-fake-global");
         } else {
+            qCDebug(cfLog, "DConfigCacheImpl::getCacheDir() not global, returning application cache directory");
             return applicationCacheDir(localPrefix);
         }
     }
@@ -1110,16 +1255,19 @@ public:
 
     bool isGlobal() const override
     {
+        qCDebug(cfLog, "DConfigCacheImpl::isGlobal() called");
         return global;
     }
 
     inline void remove(const QString &key) override
     {
+        qCDebug(cfLog, "DConfigCacheImpl::remove() called for key: %s", qPrintable(key));
         values.remove(key);
         cacheChanged = true;
     }
     bool setValue(const QString &key, const QVariant &value, const int serial, const uint uid, const QString &appid) override
     {
+        qCDebug(cfLog, "DConfigCacheImpl::setValue() called for key: %s, value: %s, serial: %d, uid: %u, appid: %s", qPrintable(key), qPrintable(value.toString()), serial, uid, qPrintable(appid));
         if (values.value(key) == value) {
             return false;
         }
@@ -1134,6 +1282,7 @@ public:
 
     inline QVariant value(const QString &key) const override
     {
+        qCDebug(cfLog, "DConfigCacheImpl::value() called for key: %s", qPrintable(key));
         return values.value(key);
     }
 
@@ -1141,6 +1290,7 @@ public:
 
     virtual void setCachePathPrefix(const QString &prefix) override
     {
+        qCDebug(cfLog, "DConfigCacheImpl::setCachePathPrefix() called with prefix: %s", qPrintable(prefix));
         cachePrefix = prefix;
     }
 
@@ -1158,17 +1308,21 @@ DConfigCacheImpl::DConfigCacheImpl(const DConfigKey &configKey, const uint uid, 
       userid(uid),
       global(global)
 {
+    qCDebug(cfLog, "DConfigCacheImpl::DConfigCacheImpl() called for configKey: %s, uid: %u, global: %s", qPrintable(configKey.appId), uid, global ? "true" : "false");
 }
 
 DConfigCacheImpl::~DConfigCacheImpl()
 {
+    qCDebug(cfLog, "DConfigCacheImpl::~DConfigCacheImpl() called");
 }
 
 bool DConfigCacheImpl::load(const QString &localPrefix)
 {
+    qCDebug(cfLog, "DConfigCacheImpl::load() called for localPrefix: %s", qPrintable(localPrefix));
     // cache 文件要严格匹配 subpath
     const QString &dir = getCacheDir(localPrefix);
     if (dir.isEmpty()) {
+        qCDebug(cfLog, "DConfigCacheImpl::load() returning true because the cache directory is empty");
         return true;
     }
     QScopedPointer<QFile> cache(loadFile(dir,
@@ -1176,6 +1330,7 @@ bool DConfigCacheImpl::load(const QString &localPrefix)
                                          configKey.fileName + FILE_SUFFIX,
                                          false));
     if (!cache) {
+        qCDebug(cfLog, "DConfigCacheImpl::load() returning true because the cache file is not found");
         return true;
     }
 
@@ -1201,8 +1356,11 @@ bool DConfigCacheImpl::load(const QString &localPrefix)
 
 bool DConfigCacheImpl::save(const QString &localPrefix, QJsonDocument::JsonFormat format, bool sync)
 {
-    if (!cacheChanged)
+    qCDebug(cfLog, "DConfigCacheImpl::save() called for localPrefix: %s, format: %d, sync: %d", qPrintable(localPrefix), format, sync);
+    if (!cacheChanged) {
+        qCDebug(cfLog, "DConfigCacheImpl::save() returning true because the cache is not changed");
         return true;
+    }
 
     cacheChanged = false;
     const QString &dir = getCacheDir(localPrefix);
@@ -1253,18 +1411,21 @@ public:
           configKey(appId, name ,subpath),
           configMeta(new DConfigMetaImpl(configKey))
     {
+        qCDebug(cfLog, "DConfigFilePrivate::DConfigFilePrivate() called for appId: %s, name: %s, subpath: %s", qPrintable(appId), qPrintable(name), qPrintable(subpath));
     }
     DConfigFilePrivate(DConfigFile *qq, const DConfigKey &configKey)
         : DObjectPrivate(qq),
           configKey(configKey),
           configMeta(new DConfigMetaImpl(configKey))
     {
+        qCDebug(cfLog, "DConfigFilePrivate::DConfigFilePrivate() called for configKey: %s", qPrintable(configKey.appId));
     }
 
     ~DConfigFilePrivate() override;
 
     bool load(const QString &localPrefix)
     {
+        qCDebug(cfLog, "DConfigFilePrivate::load() called for localPrefix: %s", qPrintable(localPrefix));
         bool status = configMeta->load(localPrefix);
         if (status) {
             // for cache
@@ -1275,9 +1436,11 @@ public:
     bool setValue(const QString &key, const QVariant &value,
                   DConfigCache *userCache, const QString &appid)
     {
+        qCDebug(cfLog, "DConfigFilePrivate::setValue() called for key: %s, value: %s, userCache: %p, appid: %s", qPrintable(key), qPrintable(value.toString()), userCache, qPrintable(appid));
         // 此处不要检查权限，在获取 value 时会检查
         if (auto cache = getCache(key, userCache)) {
             if (!value.isValid()) {
+                qCDebug(cfLog, "DConfigFilePrivate::setValue() removing key: %s", qPrintable(key));
                 cache->remove(key);
                 return true;
             } else {
@@ -1322,7 +1485,7 @@ public:
                     copy = value;
                 }
 #endif
-
+                qCDebug(cfLog) << "DConfigFilePrivate::setValue() calling cache->setValue() for key: " << key << "with copy: " << copy;
                 return cache->setValue(key, copy, configMeta->serial(key), cache->uid(), appid);
             }
         }
@@ -1330,13 +1493,17 @@ public:
     }
     DConfigCache* getCache(const QString &key, DConfigCache *userCache) const
     {
+        qCDebug(cfLog, "DConfigFilePrivate::getCache() called for key: %s, userCache: %p", qPrintable(key), userCache);
         if(configMeta->flags(key).testFlag(DConfigFile::Global)) {
+            qCDebug(cfLog, "Returning global cache");
             return globalCache;
         }
+        qCDebug(cfLog, "Returning user cache");
         return userCache;
     }
     QVariant cacheValue(DConfigCache *userCache, const QString &key) const
     {
+        qCDebug(cfLog, "DConfigFilePrivate::cacheValue() called for userCache: %p, key: %s", userCache, qPrintable(key));
         // 检查权限
         if (configMeta->permissions(key) != DConfigFile::ReadOnly) {
             if (auto cache = getCache(key, userCache)) {
@@ -1351,6 +1518,7 @@ public:
     }
     QVariant value(const QString &key, DConfigCache *userCache) const
     {
+        qCDebug(cfLog, "DConfigFilePrivate::value() called for key: %s, userCache: %p", qPrintable(key), userCache);
         const QVariant &v = cacheValue(userCache, key);
         if (v.isValid())
             return v;
@@ -1367,6 +1535,7 @@ private:
 
 DConfigFilePrivate::~DConfigFilePrivate()
 {
+    qCDebug(cfLog, "DConfigFilePrivate::~DConfigFilePrivate() called");
     if (globalCache) {
         delete globalCache;
         globalCache = nullptr;
@@ -1384,6 +1553,7 @@ DConfigFilePrivate::~DConfigFilePrivate()
  */
 constexpr DConfigFile::Version DConfigFile::supportedVersion()
 {
+    qCDebug(cfLog, "DConfigFile::supportedVersion() called");
     return DConfigFile::Version{1, 0};
 }
 
@@ -1398,6 +1568,7 @@ DConfigFile::DConfigFile(const QString &appId, const QString &name, const QStrin
     : DObject(*new DConfigFilePrivate(this, appId, name, subpath))
 {
     D_D(DConfigFile);
+    qCDebug(cfLog, "DConfigFile constructor called for appId: %s, name: %s, subpath: %s", qPrintable(appId), qPrintable(name), qPrintable(subpath));
     d->globalCache = new DConfigCacheImpl(d->configKey, InvalidUID, true);
 }
 
@@ -1405,6 +1576,7 @@ DConfigFile::DConfigFile(const DConfigFile &other)
     : DObject(*new DConfigFilePrivate(this, other.d_func()->configKey))
 {
     D_D(DConfigFile);
+    qCDebug(cfLog, "DConfigFile copy constructor called");
     auto cache = new DConfigCacheImpl(d->configKey, InvalidUID, true);
     cache->values = other.d_func()->globalCache->values;
     cache->cachePrefix = other.d_func()->globalCache->cachePrefix;
@@ -1420,6 +1592,7 @@ DConfigFile::DConfigFile(const DConfigFile &other)
 bool DConfigFile::load(const QString &localPrefix)
 {
     D_D(DConfigFile);
+    qCDebug(cfLog, "DConfigFile::load() called for localPrefix: %s", qPrintable(localPrefix));
     return d->load(localPrefix);
 }
 
@@ -1432,6 +1605,7 @@ bool DConfigFile::load(const QString &localPrefix)
 */
 bool DConfigFile::load(QIODevice *meta, const QList<QIODevice *> &overrides)
 {
+    qCDebug(cfLog, "DConfigFile::load() called for meta and overrides");
     return this->meta()->load(meta, overrides);
 }
 
@@ -1445,6 +1619,7 @@ bool DConfigFile::load(QIODevice *meta, const QList<QIODevice *> &overrides)
 bool DConfigFile::save(const QString &localPrefix, QJsonDocument::JsonFormat format, bool sync) const
 {
     D_DC(DConfigFile);
+    qCDebug(cfLog, "DConfigFile::save() called for localPrefix: %s, format: %d, sync: %d", qPrintable(localPrefix), format, sync);
 
     bool ok = d->globalCache->save(localPrefix, format, sync);
 
@@ -1461,6 +1636,7 @@ bool DConfigFile::save(const QString &localPrefix, QJsonDocument::JsonFormat for
 QVariant DConfigFile::value(const QString &key, DConfigCache *userCache) const
 {
     D_DC(DConfigFile);
+    qCDebug(cfLog, "DConfigFile::value() called for key: %s, userCache: %p", qPrintable(key), userCache);
     return d->value(key, userCache);
 }
 
@@ -1473,6 +1649,7 @@ QVariant DConfigFile::value(const QString &key, DConfigCache *userCache) const
 QVariant DConfigFile::cacheValue(DConfigCache *userCache, const QString &key) const
 {
     D_DC(DConfigFile);
+    qCDebug(cfLog, "DConfigFile::cacheValue() called for userCache: %p, key: %s", userCache, qPrintable(key));
     return d->cacheValue(userCache, key);
 }
 
@@ -1488,12 +1665,14 @@ QVariant DConfigFile::cacheValue(DConfigCache *userCache, const QString &key) co
 bool DConfigFile::setValue(const QString &key, const QVariant &value, const QString &callerAppid, DConfigCache *userCache)
 {
     D_D(DConfigFile);
+    qCDebug(cfLog) << "DConfigFile::setValue() called for key: " << key << "with value: " << value << "callerAppid: " << callerAppid << "userCache: " << userCache; 
     return d->setValue(key, value, userCache, callerAppid);
 }
 
 DConfigCache *DConfigFile::createUserCache(const uint uid)
 {
     D_D(DConfigFile);
+    qCDebug(cfLog, "DConfigFile::createUserCache() called for uid: %u", uid);
     return new DConfigCacheImpl(d->configKey, uid, false);
 }
 
@@ -1506,6 +1685,7 @@ DConfigCache *DConfigFile::createUserCache(const uint uid)
 DConfigCache *DConfigFile::globalCache() const
 {
     D_DC(DConfigFile);
+    qCDebug(cfLog, "DConfigFile::globalCache() called");
     return d->globalCache;
 }
 
@@ -1517,6 +1697,7 @@ DConfigCache *DConfigFile::globalCache() const
 DConfigMeta *DConfigFile::meta()
 {
     D_D(DConfigFile);
+    qCDebug(cfLog, "DConfigFile::meta() called");
     return d->configMeta;
 }
 
@@ -1528,6 +1709,7 @@ DConfigMeta *DConfigFile::meta()
 bool DConfigFile::isValid() const
 {
     D_DC(DConfigFile);
+    qCDebug(cfLog, "DConfigFile::isValid() called");
     return versionIsValid(d->configMeta->version());
 }
 

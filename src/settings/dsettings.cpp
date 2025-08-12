@@ -11,6 +11,7 @@
 #include <QJsonDocument>
 #include <QThread>
 #include <QDebug>
+#include <QLoggingCategory>
 
 #include "dsettingsoption.h"
 #include "dsettingsgroup.h"
@@ -18,10 +19,18 @@
 
 DCORE_BEGIN_NAMESPACE
 
+#ifdef QT_DEBUG
+Q_LOGGING_CATEGORY(logSettings, "dtk.core.settings")
+#else
+Q_LOGGING_CATEGORY(logSettings, "dtk.core.settings", QtInfoMsg)
+#endif
+
 class DSettingsPrivate
 {
 public:
-    DSettingsPrivate(DSettings *parent) : q_ptr(parent) {}
+    DSettingsPrivate(DSettings *parent) : q_ptr(parent) {
+        qCDebug(logSettings, "DSettingsPrivate created");
+    }
 
     DSettingsBackend            *backend = nullptr;
     QJsonObject                 meta;
@@ -241,36 +250,40 @@ How to read/write key and value:
 DSettings::DSettings(QObject *parent) :
     QObject(parent), dd_ptr(new DSettingsPrivate(this))
 {
+    qCDebug(logSettings, "DSettings created with parent");
 }
 
 DSettings::~DSettings()
 {
-
+    qCDebug(logSettings, "DSettings destroyed");
 }
 
 void DSettings::setBackend(DSettingsBackend *backend)
 {
+    qCDebug(logSettings, "Setting backend: %p", backend);
     Q_D(DSettings);
     if (nullptr == backend) {
+        qCWarning(logSettings, "Backend is null, ignoring setBackend call");
         return;
     }
 
     if (d->backend != nullptr) {
-        qWarning() << "set backend to exist " << d->backend;
+        qCWarning(logSettings, "set backend to exist %p", d->backend);
     }
 
     d->backend = backend;
-
 
     auto backendWriteThread = new QThread;
     d->backend->moveToThread(backendWriteThread);
 
     connect(d->backend, &DSettingsBackend::optionChanged,
     this, [ = ](const QString & key, const QVariant & value) {
+        qCDebug(logSettings, "Backend option changed: %s = %s", qPrintable(key), qPrintable(value.toString()));
         option(key)->setValue(value);
     });
     // exit and delete thread
     connect(this, &DSettings::destroyed, this, [backendWriteThread](){
+        qCDebug(logSettings, "DSettings destroyed, cleaning up backend thread");
         if (backendWriteThread->isRunning()) {
             backendWriteThread->quit();
             backendWriteThread->wait();
@@ -279,6 +292,7 @@ void DSettings::setBackend(DSettingsBackend *backend)
     });
 
     backendWriteThread->start();
+    qCDebug(logSettings, "Backend thread started");
 
     // load form backend
     loadValue();
@@ -290,6 +304,7 @@ void DSettings::setBackend(DSettingsBackend *backend)
  */
 QPointer<DSettings> DSettings::fromJson(const QByteArray &json)
 {
+    qCDebug(logSettings, "Creating DSettings from JSON, size: %d", json.size());
     auto settingsPtr = QPointer<DSettings>(new DSettings);
     settingsPtr->parseJson(json);
     return settingsPtr;
@@ -297,6 +312,7 @@ QPointer<DSettings> DSettings::fromJson(const QByteArray &json)
 
 QPointer<DSettings> DSettings::fromJsonFile(const QString &filepath)
 {
+    qCDebug(logSettings, "Creating DSettings from JSON file: %s", qPrintable(filepath));
     QFile jsonFile(filepath);
     jsonFile.open(QIODevice::ReadOnly);
     auto jsonData = jsonFile.readAll();
@@ -314,20 +330,24 @@ QJsonObject DSettings::meta() const
 QStringList DSettings::keys() const
 {
     Q_D(const DSettings);
+    qCDebug(logSettings, "Getting keys, count: %d", d->options.size());
     return d->options.keys();
 }
 
 QPointer<DSettingsOption> DSettings::option(const QString &key) const
 {
     Q_D(const DSettings);
+    qCDebug(logSettings, "Getting option for key: %s", qPrintable(key));
     return d->options.value(key);
 }
 
 QVariant DSettings::value(const QString &key) const
 {
     Q_D(const DSettings);
+    qCDebug(logSettings, "Getting value for key: %s", qPrintable(key));
     auto opt = d->options.value(key);
     if (opt.isNull()) {
+        qCWarning(logSettings, "Option not found for key: %s", qPrintable(key));
         return QVariant();
     }
 
@@ -337,12 +357,14 @@ QVariant DSettings::value(const QString &key) const
 QStringList DSettings::groupKeys() const
 {
     Q_D(const DSettings);
+    qCDebug(logSettings, "Getting group keys, count: %d", d->childGroupKeys.size());
     return d->childGroupKeys;
 }
 
 QList<QPointer<DSettingsGroup> > DSettings::groups() const
 {
     Q_D(const DSettings);
+    qCDebug(logSettings, "Getting groups, count: %d", d->childGroups.size());
     return d->childGroups.values();
 }
 /*!
@@ -354,8 +376,10 @@ QList<QPointer<DSettingsGroup> > DSettings::groups() const
 QPointer<DSettingsGroup> DSettings::group(const QString &key) const
 {
     Q_D(const DSettings);
+    qCDebug(logSettings, "Getting group for key: %s", qPrintable(key));
     auto childKeylist = key.split(".");
     if (0 >= childKeylist.length()) {
+        qCWarning(logSettings, "Invalid key format: %s", qPrintable(key));
         return nullptr;
     }
 
@@ -370,28 +394,33 @@ QPointer<DSettingsGroup> DSettings::group(const QString &key) const
 QList<QPointer<DSettingsOption> > DSettings::options() const
 {
     Q_D(const DSettings);
+    qCDebug(logSettings, "Getting all options, count: %d", d->options.size());
     return d->options.values();
 }
 
 QVariant DSettings::getOption(const QString &key) const
 {
+    qCDebug(logSettings, "Getting option value for key: %s", qPrintable(key));
     QPointer<DSettingsOption> optionPointer = option(key);
     if (optionPointer) {
         return optionPointer->value();
     }
+    qCWarning(logSettings, "Option not found for key: %s", qPrintable(key));
     return QVariant();
 }
 
 void DSettings::setOption(const QString &key, const QVariant &value)
 {
+    qCDebug(logSettings, "Setting option: %s = %s", qPrintable(key), qPrintable(value.toString()));
     option(key)->setValue(value);
 }
 
 void DSettings::sync()
 {
     Q_D(DSettings);
+    qCDebug(logSettings, "Syncing settings");
     if (!d->backend) {
-        qWarning() << "backend was not setted..!";
+        qCWarning(logSettings, "backend was not setted..!");
         return;
     }
 
@@ -401,15 +430,17 @@ void DSettings::sync()
 void DSettings::reset()
 {
     Q_D(DSettings);
+    qCDebug(logSettings, "Resetting settings");
 
     for (auto option : d->options) {
         if (option->canReset()) {
+            qCDebug(logSettings, "Resetting option: %s", qPrintable(option->key()));
             setOption(option->key(), option->defaultValue());
         }
     }
 
     if (!d->backend) {
-        qWarning() << "backend was not setted..!";
+        qCWarning(logSettings, "backend was not setted..!");
         return;
     }
 
@@ -419,10 +450,13 @@ void DSettings::reset()
 void DSettings::parseJson(const QByteArray &json)
 {
     Q_D(DSettings);
+    qCDebug(logSettings, "Parsing JSON, size: %d", json.size());
 
     auto jsonDoc = QJsonDocument::fromJson(json);
     d->meta = jsonDoc.object();
     auto mainGroups = d->meta.value("groups");
+    qCDebug(logSettings, "Found %d main groups", mainGroups.toArray().size());
+    
     for (auto groupJson : mainGroups.toArray()) {
         auto group = DSettingsGroup::fromJson("", groupJson.toObject());
         group->setParent(this);
@@ -437,10 +471,11 @@ void DSettings::parseJson(const QByteArray &json)
         d->options.insert(option->key(), option);
         connect(option.data(), &DSettingsOption::valueChanged,
         this, [ = ](QVariant value) {
+            qCDebug(logSettings, "Option value changed: %s = %s", qPrintable(option->key()), qPrintable(value.toString()));
             if (d->backend) {
                 Q_EMIT d->backend->setOption(option->key(), value);
             } else {
-                qWarning() << "backend was not setted..!";
+                qCWarning(logSettings, "backend was not setted..!");
             }
             Q_EMIT valueChanged(option->key(), value);
         });
@@ -450,8 +485,9 @@ void DSettings::parseJson(const QByteArray &json)
 void DSettings::loadValue()
 {
     Q_D(DSettings);
+    qCDebug(logSettings, "Loading values from backend");
     if (!d->backend) {
-        qWarning() << "backend was not setted..!";
+        qCWarning(logSettings, "backend was not setted..!");
         return;
     }
 
@@ -459,9 +495,11 @@ void DSettings::loadValue()
         auto value = d->backend->getOption(key);
         auto opt = option(key);
         if (!value.isValid() || opt.isNull()) {
+            qCDebug(logSettings, "Skipping invalid option: %s", qPrintable(key));
             continue;
         }
 
+        qCDebug(logSettings, "Loading option: %s = %s", qPrintable(key), qPrintable(value.toString()));
         opt->blockSignals(true);
         opt->setValue(value);
         opt->blockSignals(false);

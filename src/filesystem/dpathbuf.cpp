@@ -4,6 +4,8 @@
 
 #include "dpathbuf.h"
 
+#include <QLoggingCategory>
+
 /*!
   \class Dtk::Core::DPathBuf
   \inmodule dtkcore
@@ -18,6 +20,8 @@
  */
 
 DCORE_BEGIN_NAMESPACE
+
+Q_LOGGING_CATEGORY(logFileSystem, "dtk.core.filesystem")
 
 /*!
   \fn DPathBuf DPathBuf::operator/(const QString &p) const
@@ -68,13 +72,15 @@ DCORE_BEGIN_NAMESPACE
  */
 DPathBuf::DPathBuf(const QString &path)
 {
+    qCDebug(logFileSystem, "Creating DPathBuf with path: %s", qPrintable(path));
     m_path = QDir(path).absolutePath();
+    qCDebug(logFileSystem, "Absolute path: %s", qPrintable(m_path));
 }
 
 DPathBuf::DPathBuf()
     : DPathBuf(QString())
 {
-
+    qCDebug(logFileSystem, "Creating empty DPathBuf");
 }
 
 DCORE_END_NAMESPACE

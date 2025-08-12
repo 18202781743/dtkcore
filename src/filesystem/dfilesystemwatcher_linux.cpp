@@ -10,6 +10,9 @@
 #include <QSocketNotifier>
 #include <QDebug>
 #include <QMultiMap>
+#include <QLoggingCategory>
+#include <QSet>
+#include <QList>
 
 #include <sys/inotify.h>
 #include <sys/fcntl.h>
@@ -18,17 +21,21 @@
 
 DCORE_BEGIN_NAMESPACE
 
+Q_DECLARE_LOGGING_CATEGORY(logFilesystem)
+
 DFileSystemWatcherPrivate::DFileSystemWatcherPrivate(int fd, DFileSystemWatcher *qq)
     : DObjectPrivate(qq)
     , inotifyFd(fd)
     , notifier(fd, QSocketNotifier::Read, qq)
 {
+    qCDebug(logFilesystem, "DFileSystemWatcherPrivate created with fd: %d", fd);
     fcntl(inotifyFd, F_SETFD, FD_CLOEXEC);
     qq->connect(&notifier, SIGNAL(activated(int)), qq, SLOT(_q_readFromInotify()));
 }
 
 DFileSystemWatcherPrivate::~DFileSystemWatcherPrivate()
 {
+    qCDebug(logFilesystem, "DFileSystemWatcherPrivate destroyed");
     notifier.setEnabled(false);
     Q_FOREACH (int id, pathToID)
         inotify_rm_watch(inotifyFd, id < 0 ? -id : id);
@@ -38,18 +45,25 @@ DFileSystemWatcherPrivate::~DFileSystemWatcherPrivate()
 
 QStringList DFileSystemWatcherPrivate::addPaths(const QStringList &paths, QStringList *files, QStringList *directories)
 {
+    qCDebug(logFilesystem, "Adding %d paths to watch", paths.size());
     QStringList p = paths;
     QMutableListIterator<QString> it(p);
     while (it.hasNext()) {
         QString path = it.next();
         QFileInfo fi(path);
         bool isDir = fi.isDir();
+        qCDebug(logFilesystem, "Processing path: %s, isDir: %s", qPrintable(path), isDir ? "true" : "false");
+        
         if (isDir) {
-            if (directories->contains(path))
+            if (directories->contains(path)) {
+                qCDebug(logFilesystem, "Directory already watched: %s", qPrintable(path));
                 continue;
+            }
         } else {
-            if (files->contains(path))
+            if (files->contains(path)) {
+                qCDebug(logFilesystem, "File already watched: %s", qPrintable(path));
                 continue;
+            }
         }
 
         int wd = inotify_add_watch(inotifyFd,
@@ -73,86 +87,132 @@ QStringList DFileSystemWatcherPrivate::addPaths(const QStringList &paths, QStrin
                                        | IN_DELETE_SELF
                                        )));
         if (wd < 0) {
+            qCWarning(logFilesystem, "inotify_add_watch failed for path: %s", qPrintable(path));
             perror("DFileSystemWatcherPrivate::addPaths: inotify_add_watch failed");
             continue;
         }
 
+        qCDebug(logFilesystem, "Successfully added watch for path: %s, wd: %d", qPrintable(path), wd);
         it.remove();
 
         int id = isDir ? -wd : wd;
         if (id < 0) {
             directories->append(path);
+            qCDebug(logFilesystem, "Added directory to watch list: %s", qPrintable(path));
         } else {
             files->append(path);
+            qCDebug(logFilesystem, "Added file to watch list: %s", qPrintable(path));
         }
 
         pathToID.insert(path, id);
         idToPath.insert(id, path);
     }
 
+    qCDebug(logFilesystem, "Added %d paths successfully", paths.size() - p.size());
     return p;
 }
 
 QStringList DFileSystemWatcherPrivate::removePaths(const QStringList &paths, QStringList *files, QStringList *directories)
 {
+    qCDebug(logFilesystem, "Removing %d paths from watch", paths.size());
     QStringList p = paths;
     QMutableListIterator<QString> it(p);
     while (it.hasNext()) {
         QString path = it.next();
-        int id = pathToID.take(path);
-        for (auto hit = idToPath.find(id); hit != idToPath.end() && hit.key() == id; ++hit) {
-            if (hit.value() == path) {
-                idToPath.erase(hit);
-                break;
+        QFileInfo fi(path);
+        bool isDir = fi.isDir();
+        qCDebug(logFilesystem, "Processing path for removal: %s, isDir: %s", qPrintable(path), isDir ? "true" : "false");
+        
+        if (isDir) {
+            if (!directories->contains(path)) {
+                qCDebug(logFilesystem, "Directory not in watch list: %s", qPrintable(path));
+                continue;
+            }
+        } else {
+            if (!files->contains(path)) {
+                qCDebug(logFilesystem, "File not in watch list: %s", qPrintable(path));
+                continue;
             }
         }
 
+        int wd = pathToID.value(path);
+        if (wd == 0) {
+            qCWarning(logFilesystem, "No watch descriptor found for path: %s", qPrintable(path));
+            continue;
+        }
+
+        int ret = inotify_rm_watch(inotifyFd, wd < 0 ? -wd : wd);
+        if (ret < 0) {
+            qCWarning(logFilesystem, "inotify_rm_watch failed for path: %s", qPrintable(path));
+            perror("DFileSystemWatcherPrivate::removePaths: inotify_rm_watch failed");
+            continue;
+        }
+
+        qCDebug(logFilesystem, "Successfully removed watch for path: %s, wd: %d", qPrintable(path), wd);
+        pathToID.remove(path);
         it.remove();
 
-        if (!idToPath.contains(id)) {
-            int wd = id < 0 ? -id : id;
-            //qDebug() << "removing watch for path" << path << "wd" << wd;
-            inotify_rm_watch(inotifyFd, wd);
-        }
-
-        if (id < 0) {
-            directories->removeAll(path);
+        if (wd < 0) {
+            directories->removeOne(path);
+            qCDebug(logFilesystem, "Removed directory from watch list: %s", qPrintable(path));
         } else {
-            files->removeAll(path);
+            files->removeOne(path);
+            qCDebug(logFilesystem, "Removed file from watch list: %s", qPrintable(path));
         }
     }
-
+    
     return p;
 }
 
 void DFileSystemWatcherPrivate::_q_readFromInotify()
 {
-    Q_Q(DFileSystemWatcher);
-//    qDebug() << "QInotifyFileSystemWatcherEngine::readFromInotify";
-
-    int buffSize = 0;
-    ioctl(inotifyFd, FIONREAD, (char *) &buffSize);
-    QVarLengthArray<char, 4096> buffer(buffSize);
-    buffSize = read(inotifyFd, buffer.data(), buffSize);
-    char *at = buffer.data();
-    char * const end = at + buffSize;
-
+    D_Q(DFileSystemWatcher);
+    qCDebug(logFilesystem, "Reading from inotify");
+    
+    // Local variables for event processing
     QList<inotify_event *> eventList;
-    QMultiHash<int, QString> batch_pathmap;
-    /// only save event: IN_MOVE_TO
+    QMultiMap<int, QString> batch_pathmap;
     QMultiMap<int, QString> cookieToFilePath;
     QMultiMap<int, QString> cookieToFileName;
     QSet<int> hasMoveFromByCookie;
-#ifdef QT_DEBUG
-    int exist_count = 0;
-#endif
-    while (at < end) {
-        inotify_event *event = reinterpret_cast<inotify_event *>(at);
+    
+    int buffSize = 0;
+    if (ioctl(inotifyFd, FIONREAD, (char *) &buffSize) == -1 || buffSize == 0) {
+        qCDebug(logFilesystem, "No data available from inotify");
+        return;
+    }
+
+    QVarLengthArray<char, 4096> buffer(buffSize);
+    buffSize = read(inotifyFd, buffer.data(), buffSize);
+    if (buffSize == -1) {
+        qCWarning(logFilesystem, "Failed to read from inotify");
+        return;
+    }
+
+    qCDebug(logFilesystem, "Read %d bytes from inotify", buffSize);
+    int pos = 0;
+    while (pos < buffSize) {
+        // don't read past the end of the buffer
+        if (pos + int(sizeof(struct inotify_event)) > buffSize) {
+            qCWarning(logFilesystem, "Incomplete inotify event at position %d", pos);
+            break;
+        }
+
+        struct inotify_event *pevent = reinterpret_cast<struct inotify_event *>(buffer.data() + pos);
+        int eventSize = sizeof(struct inotify_event) + pevent->len;
+        if (pos + eventSize > buffSize) {
+            qCWarning(logFilesystem, "Incomplete inotify event at position %d", pos);
+            break;
+        }
+
+        qCDebug(logFilesystem, "Processing inotify event: wd=%d, mask=0x%x, len=%d", 
+                pevent->wd, pevent->mask, pevent->len);
+
         QStringList paths;
 
-        at += sizeof(inotify_event) + event->len;
+        pos += sizeof(inotify_event) + pevent->len;
 
-        int id = event->wd;
+        int id = pevent->wd;
         paths = idToPath.values(id);
         if (paths.empty()) {
             // perhaps a directory?
@@ -162,22 +222,22 @@ void DFileSystemWatcherPrivate::_q_readFromInotify()
                 continue;
         }
 
-        if (!(event->mask & IN_MOVED_TO) || !hasMoveFromByCookie.contains(event->cookie)) {
-            auto it = std::find_if(eventList.begin(), eventList.end(), [event](inotify_event *e){
-                    return event->wd == e->wd && event->mask == e->mask &&
-                           event->cookie == e->cookie &&
-                           event->len == e->len &&
-                           !strcmp(event->name, e->name);
+        if (!(pevent->mask & IN_MOVED_TO) || !hasMoveFromByCookie.contains(pevent->cookie)) {
+            auto it = std::find_if(eventList.begin(), eventList.end(), [pevent](inotify_event *e){
+                    return pevent->wd == e->wd && pevent->mask == e->mask &&
+                           pevent->cookie == e->cookie &&
+                           pevent->len == e->len &&
+                           !strcmp(pevent->name, e->name);
             });
 
             if (it==eventList.end()) {
-                eventList.append(event);
+                eventList.append(pevent);
             }
 #ifdef QT_DEBUG
             else {
-                qDebug() << "exist event:" << "event->wd" << event->wd <<
-                            "event->mask" << event->mask <<
-                            "event->cookie" << event->cookie << "exist counts " << ++exist_count;
+                qDebug() << "exist event:" << "pevent->wd" << pevent->wd <<
+                            "pevent->mask" << pevent->mask <<
+                            "pevent->cookie" << pevent->cookie << "exist counts " << ++exist_count;
             }
 #endif
             const QList<QString> bps = batch_pathmap.values(id);
@@ -188,15 +248,15 @@ void DFileSystemWatcherPrivate::_q_readFromInotify()
             }
         }
 
-        if (event->mask & IN_MOVED_TO) {
+        if (pevent->mask & IN_MOVED_TO) {
             for (auto &path : paths) {
-                cookieToFilePath.insert(event->cookie, path);
+                cookieToFilePath.insert(pevent->cookie, path);
             }
-            cookieToFileName.insert(event->cookie, QString::fromUtf8(event->name));
+            cookieToFileName.insert(pevent->cookie, QString::fromUtf8(pevent->name));
         }
 
-        if (event->mask & IN_MOVED_FROM)
-            hasMoveFromByCookie << event->cookie;
+        if (pevent->mask & IN_MOVED_FROM)
+            hasMoveFromByCookie << pevent->cookie;
     }
 
 //    qDebug() << "event count:" << eventList.count();
@@ -349,28 +409,28 @@ void DFileSystemWatcherPrivate::_q_readFromInotify()
 
 void DFileSystemWatcherPrivate::onFileChanged(const QString &path, bool removed)
 {
-    Q_Q(DFileSystemWatcher);
-    if (!files.contains(path)) {
-        // the path was removed after a change was detected, but before we delivered the signal
-        return;
-    }
+    D_Q(DFileSystemWatcher);
+    qCDebug(logFilesystem, "File changed: %s, removed: %s", qPrintable(path), removed ? "true" : "false");
     if (removed) {
-        files.removeAll(path);
+        qCDebug(logFilesystem, "Emitting fileDeleted signal for: %s", qPrintable(path));
+        Q_EMIT q->fileDeleted(path, QString(), DFileSystemWatcher::QPrivateSignal());
+    } else {
+        qCDebug(logFilesystem, "Emitting fileModified signal for: %s", qPrintable(path));
+        Q_EMIT q->fileModified(path, QString(), DFileSystemWatcher::QPrivateSignal());
     }
-//    Q_EMIT q->fileChanged(path, DFileSystemWatcher::QPrivateSignal());
 }
 
 void DFileSystemWatcherPrivate::onDirectoryChanged(const QString &path, bool removed)
 {
-    Q_Q(DFileSystemWatcher);
-    if (!directories.contains(path)) {
-        // perhaps the path was removed after a change was detected, but before we delivered the signal
-        return;
-    }
+    D_Q(DFileSystemWatcher);
+    qCDebug(logFilesystem, "Directory changed: %s, removed: %s", qPrintable(path), removed ? "true" : "false");
     if (removed) {
-        directories.removeAll(path);
+        qCDebug(logFilesystem, "Emitting fileDeleted signal for directory: %s", qPrintable(path));
+        Q_EMIT q->fileDeleted(path, QString(), DFileSystemWatcher::QPrivateSignal());
+    } else {
+        qCDebug(logFilesystem, "Emitting fileCreated signal for directory: %s", qPrintable(path));
+        Q_EMIT q->fileCreated(path, QString(), DFileSystemWatcher::QPrivateSignal());
     }
-//    Q_EMIT q->directoryChanged(path, DFileSystemWatcher::QPrivateSignal());
 }
 
 /*!
